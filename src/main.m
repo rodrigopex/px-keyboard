@@ -22,7 +22,18 @@
 #include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
 
-/* Mirrors samples/zbus_service's lis_print_temp: an observer purely to watch. */
+/*
+ * Mirrors samples/zbus_service's lis_print_temp: an observer purely to
+ * watch.
+ *
+ * Left synchronous, unlike the three real ones, and the reason is worth
+ * stating since the LED listener had to stop being: a synchronous listener
+ * runs on the publisher's stack, so it is only safe when it is shallow and
+ * the publisher is not. This one is a single printk, and chan_keys is
+ * published from the input-subsystem callback -- the system work queue,
+ * 2048 bytes. The LED one ran from a Bluetooth connection callback at 1200
+ * and overflowed it.
+ */
 OZM(ZBUS_LISTENER_DEFINE, lis_keys_debug, ^(const struct zbus_channel *chan) {
 	const struct msg_keys *keys = zbus_chan_const_msg(chan);
 

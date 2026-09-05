@@ -77,11 +77,23 @@ static struct k_timer sIndicatorTimer;
 #endif
 
 /*
- * The only place BLE state becomes indicator state. A plain synchronous
- * listener is right here: nothing below it blocks.
+ * The only place BLE state becomes indicator state.
+ *
+ * Async, and that is not a preference. A synchronous listener runs in
+ * whatever context published, and chan_ble_link is published from the
+ * Bluetooth connection callbacks -- which run on the BT RX thread, 1200
+ * bytes by default. Going `zbus_chan_pub` -> listener -> -setLEDStatus: ->
+ * k_timer_stop on that stack overflowed it into the MPU guard and faulted
+ * inside z_abort_timeout, right after logging "solid".
+ *
+ * The first version of this was synchronous, justified as "nothing below it
+ * blocks". That was true and beside the point: the cost of a synchronous
+ * listener is the publisher's *stack*, not just its latency. An indicator
+ * has no deadline, so the work queue hop costs nothing that matters.
  */
-OZM(ZBUS_LISTENER_DEFINE, lis_led_status, ^(const struct zbus_channel *chan) {
-	const struct msg_ble_link *link = zbus_chan_const_msg(chan);
+OZM(ZBUS_ASYNC_LISTENER_DEFINE, alis_led_status,
+    ^(const struct zbus_channel *chan, const void *message) {
+	const struct msg_ble_link *link = message;
 	enum px_led_status status = PX_LED_STATUS_OFF;
 
 	switch (link->state) {
@@ -99,9 +111,9 @@ OZM(ZBUS_LISTENER_DEFINE, lis_led_status, ^(const struct zbus_channel *chan) {
 	[[PXLEDController sharedInstance] setLEDStatus:status];
 });
 
-ZBUS_OBS_DECLARE(lis_led_status)
+ZBUS_OBS_DECLARE(alis_led_status)
 
-ZBUS_CHAN_ADD_OBS(chan_ble_link, lis_led_status, 3);
+ZBUS_CHAN_ADD_OBS(chan_ble_link, alis_led_status, 3);
 
 static PXLEDController *sSharedLEDController;
 
