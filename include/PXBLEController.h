@@ -47,8 +47,19 @@ ZBUS_CHAN_DECLARE(chan_ble_link); /* Type: struct msg_ble_link */
 /** @brief A central connected. */
 - (void)onConnected;
 
-/** @brief The central went away. */
+/** @brief The central went away. The link is down, but not yet reusable. */
 - (void)onDisconnected;
+
+/**
+ * @brief A connection object was returned to the pool.
+ *
+ * Where advertising restarts. Not `-onDisconnected`: at that point the
+ * connection object still exists, and `bt_le_adv_start` fails -ENOMEM
+ * because there is nothing to accept a new central with. Zephyr's own
+ * `bt_conn_cb.disconnected` documentation says to use `recycled` for
+ * exactly this.
+ */
+- (void)onConnectionRecycled;
 
 /* ---- Gestures ---- */
 

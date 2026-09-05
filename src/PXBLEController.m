@@ -99,6 +99,19 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	[[PXBLEController sharedInstance] onDisconnected];
 }
 
+/*
+ * Advertising restarts here rather than in `disconnected`. There, the
+ * connection object still exists and `bt_le_adv_start` returns -ENOMEM --
+ * observed on hardware as "Advertising failed to start (err -12)", after
+ * which the device was invisible until reset. Zephyr's own
+ * `bt_conn_cb.disconnected` documentation points at this callback for the
+ * purpose.
+ */
+static void recycled(void)
+{
+	[[PXBLEController sharedInstance] onConnectionRecycled];
+}
+
 static void security_changed(struct bt_conn *conn, bt_security_t level,
 			     enum bt_security_err err)
 {
@@ -116,6 +129,7 @@ static void security_changed(struct bt_conn *conn, bt_security_t level,
 BT_CONN_CB_DEFINE(conn_callbacks) = {
 	.connected = connected,
 	.disconnected = disconnected,
+	.recycled = recycled,
 	.security_changed = security_changed,
 };
 
@@ -131,6 +145,32 @@ static void auth_cancel(struct bt_conn *conn)
 
 static struct bt_conn_auth_cb auth_cb = {
 	.cancel = auth_cancel,
+};
+
+/*
+ * Pairing outcome. Without these, a rejected pairing shows only as
+ * `security_changed` reporting a level and an error code, which says that
+ * it failed but not what the peer objected to.
+ */
+static void pairing_complete(struct bt_conn *conn, bool bonded)
+{
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+	printk("Pairing complete: %s (bonded %d)\n", addr, bonded);
+}
+
+static void pairing_failed(struct bt_conn *conn, enum bt_security_err reason)
+{
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+	printk("Pairing failed: %s (reason %d)\n", addr, reason);
+}
+
+static struct bt_conn_auth_info_cb auth_info_cb = {
+	.pairing_complete = pairing_complete,
+	.pairing_failed = pairing_failed,
 };
 
 /* ---- BT ready ---- */
@@ -149,6 +189,7 @@ static void bt_ready(int err)
 	}
 
 	bt_conn_auth_cb_register(&auth_cb);
+	bt_conn_auth_info_cb_register(&auth_info_cb);
 
 	[[PXBLEController sharedInstance] onBTReady];
 }
@@ -242,8 +283,14 @@ static PXBLEController *sSharedController;
 
 - (void)onDisconnected
 {
-	OZLog("PXBLEController: disconnected, re-advertising");
+	OZLog("PXBLEController: disconnected");
 	_advertising = NO;
+	[self publishState:PX_BLE_STATE_IDLE];
+}
+
+- (void)onConnectionRecycled
+{
+	OZLog("PXBLEController: connection recycled, re-advertising");
 	[self startAdvertising];
 }
 
@@ -355,6 +402,12 @@ static PXBLEController *sSharedController;
 		return;
 	}
 
+	/*
+	 * Only when there was no link to drop. Where there was, `bt_unpair`
+	 * disconnected it, and advertising restarts from `recycled` once the
+	 * connection object is actually free -- starting it here would hit
+	 * the same -ENOMEM.
+	 */
 	if (!sCurrentConn) {
 		[self startAdvertising];
 	}
