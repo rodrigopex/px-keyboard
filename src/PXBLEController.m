@@ -143,7 +143,33 @@ static void auth_cancel(struct bt_conn *conn)
 	printk("Pairing cancelled: %s\n", addr);
 }
 
+/*
+ * Displaying a passkey is what makes pairing possible at all here, not a
+ * nicety.
+ *
+ * With no auth callbacks beyond `.cancel`, `smp.c::get_io_capa` returns
+ * BT_SMP_IO_NO_INPUT_OUTPUT, so the only available method is Just Works --
+ * and Zephyr then *clears* the MITM bit rather than requesting it
+ * (smp.c:2936), so `CONFIG_BT_SMP_ENFORCE_MITM` has nothing to do with it.
+ * The host is what refuses: a keyboard that cannot authenticate is a
+ * keystroke-injection risk, so macOS rejected the pairing with
+ * BT_SECURITY_ERR_AUTH_REQUIREMENT and dropped the link.
+ *
+ * `passkey_display` alone earns BT_SMP_IO_DISPLAY_ONLY, which against a
+ * host's KeyboardDisplay selects Passkey Entry: this side shows six digits,
+ * the host's user types them. That is authenticated, and it is what a real
+ * BLE keyboard does -- the console is the display.
+ */
+static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
+{
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+	printk("Pairing passkey for %s: %06u\n", addr, passkey);
+}
+
 static struct bt_conn_auth_cb auth_cb = {
+	.passkey_display = auth_passkey_display,
 	.cancel = auth_cancel,
 };
 
