@@ -1,110 +1,57 @@
 # Workarounds
 
-Five places in this app are shaped around `oz_static` defects rather than around what
-the code wants to say. Each is filed upstream with a minimal reproducer. **When the
-issue closes, revert the workaround** — this file exists so that is a mechanical job
-rather than an archaeology one.
+One left, and it is permanent. The other four are gone: the `oz_static` defects
+behind them are fixed and merged, so this file no longer tracks a backlog.
 
 Upstream tracker: [rodrigopex/objective-z](https://github.com/rodrigopex/objective-z),
-[Project #4](https://github.com/users/rodrigopex/projects/4). All five failed the same
-way — an unreadable GCC error on generated C, never a located error on the `.m`.
-
-Verify a fix with the gate that found these:
-
-```sh
-cd ..
-ZEPHYR_BASE=$PWD/deps/zephyr west build -b nrf52833dk/nrf52833 -p always \
-    -d px-keyboard/build px-keyboard
-```
+[Project #4](https://github.com/users/rodrigopex/projects/4).
 
 ---
 
-## 1. The gesture table is at file scope — [#287](https://github.com/rodrigopex/objective-z/issues/287)
+## `PWMOutput` has no `spec` property — [#290](https://github.com/rodrigopex/objective-z/issues/290)
 
-*An array ivar loses its dimension in the generated struct.*
+**Permanent, and now enforced rather than merely advisable.**
 
-`src/PXBLEController.m:170` holds `static SEL sGestures[PX_KEY_COUNT];` outside the
-class. It belongs inside, since it is per-instance state in every sense but this one.
+`GPIOPin` publishes `spec` returning `const struct gpio_dt_spec *`. `PWMOutput` wants
+the same selector for `const struct pwm_dt_spec *`, so `include/PWMOutput.h` keeps its
+spec as a private ivar with no accessor — asymmetric with `GPIOPin`, which it otherwise
+mirrors.
 
-**Revert:** move it into the `@implementation` ivar block at line 172 as
-`SEL _gestures[PX_KEY_COUNT];`, then rename the five uses (lines ~194-197, 200, 302)
-from `sGestures[...]` back to `_gestures[...]`. Drop the explanatory comment above the
-declaration.
+This started as a workaround for a miscompilation: `OZ_PROTOCOL_SEND_spec` was emitted
+with one implementor's return type and routed to both, which GCC rejected while naming
+generated code nobody wrote. #290 made that a located error, so the shape is now
+*diagnosed* rather than silently broken — but it is still not allowed. Adding the
+property back gives:
 
-## 2. The indicator ivar is a bare `id` — [#288](https://github.com/rodrigopex/objective-z/issues/288)
-
-*An `OZM` between an `@interface` and its `@implementation` leaves the whole
-`@implementation` untranslated.*
-
-`src/PXLEDController.m:120` declares `id _indicator;` where the design wants
-`id<PXToggleable> _indicator;`, and three sends carry a cast to compensate.
-
-**Revert:** make the ivar `id<PXToggleable> _indicator;` and drop the
-`(id<PXToggleable>)` casts at lines ~174, 179 and 196. Leave the `(id<PXDimmable>)`
-cast in the timer block alone — that one is a deliberate narrowing, not a workaround.
-
-**Note:** the comment above that ivar blames a protocol-qualified `id` ivar. That
-diagnosis was wrong — the ivar type is irrelevant, the trigger is positional. Correct
-the comment or delete it with the workaround.
-
-## 3. The LED singleton pointer sits above the `OZM` blocks — [#288](https://github.com/rodrigopex/objective-z/issues/288)
-
-Same defect, second symptom: the declaration reached GCC as `PXLEDController *`
-rather than `struct PXLEDController *`. Compare
-[OZ-004](https://github.com/rodrigopex/objective-z/issues/37).
-
-`src/PXLEDController.m:36` declares `static PXLEDController *sSharedLEDController;`
-near the top of the file. The other three singletons put theirs immediately before
-their `@implementation` (`PXBLEController.m:158`, `PXHIDService.m:199`,
-`PXKeyboard.m:35`).
-
-**Revert:** move it down to just above `@implementation PXLEDController`, matching the
-other three, and drop the comment explaining the placement.
-
-## 4. The shell handler is a named C function — [#289](https://github.com/rodrigopex/objective-z/issues/289)
-
-*A second `OZM` in the same file keeps its block literal at the call site.*
-
-`src/main.m` already carries one `OZM(ZBUS_LISTENER_DEFINE, …)`, so the shell command
-could not be a second one. It is a `static int px_info_handler(...)` at line 45 with a
-bare `SHELL_CMD_REGISTER` at line 59.
-
-**Revert:** collapse both into one invocation, which is what the rest of the file's
-wiring looks like:
-
-```objc
-OZM(SHELL_CMD_REGISTER, px_info, NULL, "Dump PX keyboard state",
-    ^(const struct shell *sh, size_t argc, char **argv) {
-	ARG_UNUSED(sh);
-	ARG_UNUSED(argc);
-	ARG_UNUSED(argv);
-
-	OZLog("%@", [PXKeyboard sharedInstance]);
-	OZLog("%@", [PXBLEController sharedInstance]);
-	OZLog("%@", [PXHIDService sharedInstance]);
-	OZLog("%@", [PXLEDController sharedInstance]);
-
-	return 0;
-});
+```
+oz_static: error: 'spec' is dispatched dynamically, so one shared
+'OZ_PROTOCOL_SEND_spec' routes every implementor -- but GPIOPin returns
+'const struct gpio_dt_spec*' and PWMOutput returns 'const struct pwm_dt_spec*'.
+Dispatch is keyed on the selector name alone, so the two cannot share one.
+Rename one of them, or give them the same return type.
 ```
 
-## 5. `PWMOutput` has no `spec` property — [#290](https://github.com/rodrigopex/objective-z/issues/290)
+Verified by trying it, not assumed.
 
-*Two classes publishing one selector with different return types miscompile the
-dispatch shim.*
+**If you want the accessor**, take one of the two ways the diagnostic names: give it a
+distinct selector (`-pwmSpec`), or have both return an opaque `const void *`. Reverting
+to a shared `spec` is not an option and will not become one — dispatch is keyed on the
+selector name, so it cannot be.
 
-`GPIOPin` publishes `spec` returning `const struct gpio_dt_spec *`. `PWMOutput`
-wanting `spec` for `const struct pwm_dt_spec *` broke `OZ_PROTOCOL_SEND_spec`, so
-`include/PWMOutput.h` keeps the spec as a private ivar with no accessor — asymmetric
-with `GPIOPin`, which it otherwise mirrors.
+---
 
-**Revert:** add back the property and its synthesis, and drop the comment above the
-`@interface`:
+## Removed, with the fix that removed them
 
-```objc
-/* include/PWMOutput.h */
-@property(nonatomic, readonly, unsafe_unretained) const struct pwm_dt_spec *spec;
+| Was | Fixed by | Reverted |
+| --- | --- | --- |
+| gesture table at file scope instead of an ivar | [#287](https://github.com/rodrigopex/objective-z/issues/287) | `PXBLEController.m` — `SEL _gestures[PX_KEY_COUNT]` is an ivar again |
+| `id _indicator` instead of `id<PXToggleable>` | [#288](https://github.com/rodrigopex/objective-z/issues/288) | `PXLEDController.m` — protocol-typed, casts dropped |
+| singleton pointer hoisted above the `OZM` blocks | [#288](https://github.com/rodrigopex/objective-z/issues/288) | `PXLEDController.m` — back beside its `@implementation`, like the other three |
+| shell handler as a named C function | [#289](https://github.com/rodrigopex/objective-z/issues/289) | `main.m` — one `OZM(SHELL_CMD_REGISTER, …, ^{…})` again |
 
-/* src/PWMOutput.m, inside @implementation */
-@synthesize spec = _spec;
-```
+## Not a workaround, but a required follow-on
+
+`-cDescription:maxLength:` takes a `size_t` capacity as of
+[#294](https://github.com/rodrigopex/objective-z/issues/294) — `snprintf`'s shape. All
+seven overrides here were updated. The build tolerated the old `int` through an
+implicit conversion, so this was correctness rather than a fix.

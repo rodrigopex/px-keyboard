@@ -35,16 +35,11 @@ ZBUS_CHAN_ADD_OBS(chan_keys, lis_keys_debug, 4);
 
 /*
  * Every singleton overrides -cDescription:maxLength:, so dumping the whole
- * app is four %@ conversions.
- *
- * WORKAROUND (objective-z #289, see WORKAROUNDS.md): a named C function
- * rather than a second inline block through OZM. This file already carries
- * one OZM, and a second one keeps its block literal at the call site, so
- * the `^` reaches the C compiler. A plain static handler is what
- * samples/zbus_service does for its own callback anyway.
+ * app is four %@ conversions. SHELL_CMD_REGISTER takes a raw handler
+ * pointer, hence OZM.
  */
-static int px_info_handler(const struct shell *sh, size_t argc, char **argv)
-{
+OZM(SHELL_CMD_REGISTER, px_info, NULL, "Dump PX keyboard state",
+    ^(const struct shell *sh, size_t argc, char **argv) {
 	ARG_UNUSED(sh);
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
@@ -55,9 +50,7 @@ static int px_info_handler(const struct shell *sh, size_t argc, char **argv)
 	OZLog("%@", [PXLEDController sharedInstance]);
 
 	return 0;
-}
-
-SHELL_CMD_REGISTER(px_info, NULL, "Dump PX keyboard state", px_info_handler);
+});
 
 int main(void)
 {

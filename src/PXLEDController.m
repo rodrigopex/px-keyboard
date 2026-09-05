@@ -27,13 +27,6 @@
 static const struct gpio_dt_spec kLed0Spec = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
 static const struct pwm_dt_spec kPwmLed0Spec = PWM_DT_SPEC_GET(DT_ALIAS(pwm_led0));
 
-/*
- * WORKAROUND (objective-z #288, see WORKAROUNDS.md): declared ahead of the
- * OZM blocks below. Left where the other three singletons keep theirs --
- * just above the @implementation -- it reached the C compiler as
- * `PXLEDController *` rather than `struct PXLEDController *`.
- */
-static PXLEDController *sSharedLEDController;
 
 /** @brief Blink half-period, for an indicator that is only on/off. */
 #define PX_BLINK_MS 500
@@ -110,17 +103,10 @@ ZBUS_OBS_DECLARE(lis_led_status)
 
 ZBUS_CHAN_ADD_OBS(chan_ble_link, lis_led_status, 3);
 
-/*
- * WORKAROUND (objective-z #288, see WORKAROUNDS.md): `id` rather than
- * `id<PXToggleable>`, with the protocol moved to the send sites below.
- *
- * The defect is positional -- an OZM block between an @interface and its
- * @implementation leaves the whole @implementation untranslated -- and the
- * ivar's type is not actually what triggers it. Spelling it `id` is what
- * happens to sidestep it here; it is not the explanation.
- */
+static PXLEDController *sSharedLEDController;
+
 @implementation PXLEDController {
-	id _indicator;
+	id<PXToggleable> _indicator;
 	BOOL _dimmable;
 	int _status;
 }
@@ -174,12 +160,12 @@ ZBUS_CHAN_ADD_OBS(chan_ble_link, lis_led_status, 3);
 
 	switch (status) {
 	case PX_LED_STATUS_OFF:
-		[(id<PXToggleable>)_indicator setActive:NO];
+		[_indicator setActive:NO];
 		OZLog("PXLEDController: off");
 		break;
 
 	case PX_LED_STATUS_BLINK:
-		[(id<PXToggleable>)_indicator setActive:NO];
+		[_indicator setActive:NO];
 		sBreathes = _dimmable;
 		sBreathLevel = 0;
 		sBreathDelta = PX_BREATH_STEP;
@@ -196,13 +182,13 @@ ZBUS_CHAN_ADD_OBS(chan_ble_link, lis_led_status, 3);
 		break;
 
 	case PX_LED_STATUS_ON:
-		[(id<PXToggleable>)_indicator setActive:YES];
+		[_indicator setActive:YES];
 		OZLog("PXLEDController: solid");
 		break;
 	}
 }
 
-- (int)cDescription:(char *)buf maxLength:(int)maxLen
+- (int)cDescription:(char *)buf maxLength:(size_t)maxLen
 {
 	static const char *const kStatusNames[] = {"off", "pulsing", "solid"};
 

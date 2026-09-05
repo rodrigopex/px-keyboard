@@ -157,20 +157,13 @@ static void bt_ready(int err)
 
 static PXBLEController *sSharedController;
 
-/*
- * One selector per key, dispatched on the rising edge of that key's
- * long-press bit. Filled in -init rather than as a static initializer, so
- * @selector() is evaluated at runtime.
- *
- * WORKAROUND (objective-z #287, see WORKAROUNDS.md): at file scope rather
- * than as an ivar, because oz_static drops the array dimension off an ivar
- * declaration -- `SEL _gestures[PX_KEY_COUNT]` became a bare `SEL
- * _gestures;` in the generated struct, and indexing it no longer compiled.
- * This class is a singleton, so per-class storage loses nothing.
- */
-static SEL sGestures[PX_KEY_COUNT];
-
 @implementation PXBLEController {
+	/*
+	 * One selector per key, dispatched on the rising edge of that key's
+	 * long-press bit. Filled in -init rather than as a static initializer,
+	 * so @selector() is evaluated at runtime.
+	 */
+	SEL _gestures[PX_KEY_COUNT];
 	uint8_t _lastLongMask;
 	BOOL _advertising;
 }
@@ -192,13 +185,13 @@ static SEL sGestures[PX_KEY_COUNT];
 		_lastLongMask = 0;
 		_advertising = NO;
 
-		sGestures[PX_KEY_P] = @selector(toggleAdvertising);
-		sGestures[PX_KEY_X] = @selector(disconnectLink);
-		sGestures[PX_KEY_K] = @selector(reportBatteryLevel);
-		sGestures[PX_KEY_B] = @selector(forgetBond);
+		_gestures[PX_KEY_P] = @selector(toggleAdvertising);
+		_gestures[PX_KEY_X] = @selector(disconnectLink);
+		_gestures[PX_KEY_K] = @selector(reportBatteryLevel);
+		_gestures[PX_KEY_B] = @selector(forgetBond);
 
 		for (int key = 0; key < PX_KEY_COUNT; key++) {
-			oz_assert([self respondsToSelector:sGestures[key]]);
+			oz_assert([self respondsToSelector:_gestures[key]]);
 		}
 
 		OZLog("PXBLEController: initialized");
@@ -300,7 +293,7 @@ static SEL sGestures[PX_KEY_COUNT];
 	for (int key = 0; key < PX_KEY_COUNT; key++) {
 		if (rising & BIT(key)) {
 			OZLog("PXBLEController: gesture on key %d", key);
-			[self performSelector:sGestures[key]];
+			[self performSelector:_gestures[key]];
 		}
 	}
 }
@@ -367,7 +360,7 @@ static SEL sGestures[PX_KEY_COUNT];
 	}
 }
 
-- (int)cDescription:(char *)buf maxLength:(int)maxLen
+- (int)cDescription:(char *)buf maxLength:(size_t)maxLen
 {
 	static const char *const kStateNames[] = {"idle", "advertising", "connected"};
 

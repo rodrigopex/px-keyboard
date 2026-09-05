@@ -249,7 +249,7 @@ static PXHIDService *sSharedService;
 	return sNotificationsEnabled ? YES : NO;
 }
 
-- (int)cDescription:(char *)buf maxLength:(int)maxLen
+- (int)cDescription:(char *)buf maxLength:(size_t)maxLen
 {
 	return snprintk(buf, maxLen, "<PXHIDService: subscribed=%d, report_map=%u bytes>",
 			sNotificationsEnabled, (unsigned int)sizeof(sReportMap));
