@@ -12,9 +12,10 @@ include_directories(include)
 objz_transpile_sources(app
     src/GPIOPin.m
     src/GPIOOutput.m
-    src/PXLEDController.m
-    src/PXBLEController.m
-    src/PXHIDService.m
+    src/PWMOutput.m
     src/PXKeyboard.m
+    src/PXHIDService.m
+    src/PXBLEController.m
+    src/PXLEDController.m
     src/main.m
 )

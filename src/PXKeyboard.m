@@ -5,114 +5,141 @@
 
 /**
  * @file PXKeyboard.m
- * @brief Maps buttons to HID keycodes, sends BLE HID reports, handles long-press combo.
- *        Includes input subsystem callback for button state tracking.
+ * @brief Input subsystem -> chan_keys.
+ *
+ * The buttons arrive as two families of event codes. The raw ones
+ * (INPUT_KEY_0..3) come straight from the gpio-keys node in the board
+ * devicetree. The long-press ones (INPUT_KEY_M/N/Y/Z) come from the
+ * zephyr,input-longpress node in app.overlay, which republishes a held key
+ * under a second code after long-delay-ms and clears it on release. Both
+ * families reach this one callback, and both fold into one message.
  */
 #import "PXKeyboard.h"
-#import "PXHIDService.h"
-#include <zephyr/kernel.h>
-#include <zephyr/input/input.h>
+
 #include <zephyr/dt-bindings/input/input-event-codes.h>
 
-/* Long-press: sw0 + sw1 held for 5 seconds */
-#define COMBO_MASK         0x03
-#define COMBO_HOLD_MS      5000
+ZBUS_CHAN_DEFINE(chan_keys, struct msg_keys, NULL, NULL, ZBUS_OBSERVERS_EMPTY,
+		 ZBUS_MSG_INIT(.mask = 0, .long_mask = 0));
 
-/* ---- Input subsystem button tracking ---- */
+/*
+ * The callback is a block so the wiring reads as one unit, which means it
+ * must reach its object the way every hoisted block does -- through the
+ * singleton, never through a capture. OZM carries the block into the macro;
+ * see include/oz_sdk/Foundation/OZMacro.h.
+ */
+OZM(INPUT_CALLBACK_DEFINE, NULL, ^(struct input_event *evt, void *user_data) {
+	ARG_UNUSED(user_data);
+	[[PXKeyboard sharedInstance] handleInputEvent:evt];
+}, NULL);
 
-static volatile uint8_t sPressedMask;
-
-static void buttons_input_cb(struct input_event *evt, void *user_data)
-{
-        ARG_UNUSED(user_data);
-
-        if (evt->type != INPUT_EV_KEY) {
-                return;
-        }
-
-        uint8_t bit;
-
-        switch (evt->code) {
-        case INPUT_KEY_0:
-                bit = BIT(0);
-                break;
-        case INPUT_KEY_1:
-                bit = BIT(1);
-                break;
-        case INPUT_KEY_2:
-                bit = BIT(2);
-                break;
-        case INPUT_KEY_3:
-                bit = BIT(3);
-                break;
-        default:
-                return;
-        }
-
-        if (evt->value) {
-                sPressedMask |= bit;
-        } else {
-                sPressedMask &= ~bit;
-        }
-}
-
-INPUT_CALLBACK_DEFINE(NULL, buttons_input_cb, NULL);
-
-/* ---- PXKeyboard ---- */
+static PXKeyboard *sSharedKeyboard;
 
 @implementation PXKeyboard {
-    PXBLEController *_ble;
+	uint8_t _mask;
+	uint8_t _longMask;
 }
 
-- (id)initWithBLEController:(PXBLEController *)ble
++ (void)initialize
 {
-    self = [super init];
-    if (self) {
-        _ble = ble;
-    }
-    return self;
+	sSharedKeyboard = [[PXKeyboard alloc] init];
 }
 
-- (void)run
++ (instancetype)sharedInstance
 {
-    uint8_t prevMask = 0;
-    int64_t comboStartTime = 0;
-    BOOL comboActive = NO;
+	return sSharedKeyboard;
+}
 
-    OZLog("PXKeyboard: running (50Hz scan)");
+- (id)init
+{
+	self = [super init];
+	if (self) {
+		_mask = 0;
+		_longMask = 0;
+		OZLog("PXKeyboard: initialized");
+	}
+	return self;
+}
 
-    for (;;) {
-        uint8_t mask = sPressedMask;
+- (uint8_t)mask
+{
+	return _mask;
+}
 
-        /* Send HID report on state change */
-        if (mask != prevMask) {
-            [[PXHIDService shared] sendReportForMask:mask];
-            prevMask = mask;
-        }
+- (uint8_t)longMask
+{
+	return _longMask;
+}
 
-        /* Long-press combo detection: sw0 + sw1 for 5s */
-        if ((mask & COMBO_MASK) == COMBO_MASK) {
-            if (!comboActive) {
-                comboActive = YES;
-                comboStartTime = k_uptime_get();
-            } else {
-                int64_t elapsed = k_uptime_get() - comboStartTime;
-                if (elapsed >= COMBO_HOLD_MS) {
-                    OZLog("PXKeyboard: long-press combo detected!");
-                    [_ble forgetBondAndReadvertise];
-                    comboActive = NO;
-                    /* Wait for buttons to be released */
-                    while ((sPressedMask & COMBO_MASK) == COMBO_MASK) {
-                        k_msleep(50);
-                    }
-                }
-            }
-        } else {
-            comboActive = NO;
-        }
+- (void)handleInputEvent:(struct input_event *)evt
+{
+	if (evt->type != INPUT_EV_KEY) {
+		return;
+	}
 
-        k_msleep(20);
-    }
+	uint8_t bit;
+	uint8_t *target;
+
+	switch (evt->code) {
+	/* Raw presses, from the board's gpio-keys node. */
+	case INPUT_KEY_0:
+		bit = BIT(PX_KEY_P);
+		target = &_mask;
+		break;
+	case INPUT_KEY_1:
+		bit = BIT(PX_KEY_X);
+		target = &_mask;
+		break;
+	case INPUT_KEY_2:
+		bit = BIT(PX_KEY_K);
+		target = &_mask;
+		break;
+	case INPUT_KEY_3:
+		bit = BIT(PX_KEY_B);
+		target = &_mask;
+		break;
+	/* Long presses, from the longpress node in app.overlay. */
+	case INPUT_KEY_M:
+		bit = BIT(PX_KEY_P);
+		target = &_longMask;
+		break;
+	case INPUT_KEY_N:
+		bit = BIT(PX_KEY_X);
+		target = &_longMask;
+		break;
+	case INPUT_KEY_Y:
+		bit = BIT(PX_KEY_K);
+		target = &_longMask;
+		break;
+	case INPUT_KEY_Z:
+		bit = BIT(PX_KEY_B);
+		target = &_longMask;
+		break;
+	default:
+		return;
+	}
+
+	uint8_t updated = evt->value ? (*target | bit) : (*target & ~bit);
+
+	if (updated == *target) {
+		return;
+	}
+
+	*target = updated;
+
+	struct msg_keys msg = {
+		.mask = _mask,
+		.long_mask = _longMask,
+	};
+
+	int ret = zbus_chan_pub(&chan_keys, &msg, K_MSEC(50));
+	if (ret < 0) {
+		OZLog("PXKeyboard: publish failed: %d", ret);
+	}
+}
+
+- (int)cDescription:(char *)buf maxLength:(int)maxLen
+{
+	return snprintk(buf, maxLen, "<PXKeyboard: mask=0x%02x long=0x%02x>", _mask, _longMask);
 }
 
 @end

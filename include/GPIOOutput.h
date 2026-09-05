@@ -12,11 +12,12 @@
  */
 #pragma once
 #import "GPIOPin.h"
+#import "PXToggleable.h"
 
 /**
  * @brief GPIO output pin.
  */
-@interface GPIOOutput : GPIOPin
+@interface GPIOOutput : GPIOPin <PXToggleable>
 
 /**
  * @brief Initialize a GPIO output pin.

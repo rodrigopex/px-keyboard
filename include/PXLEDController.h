@@ -5,23 +5,31 @@
 
 /**
  * @file PXLEDController.h
- * @brief LED controller for power and BLE status indicators.
+ * @brief Status indicator, driven from chan_ble_link.
+ *
+ * Deliberately knows nothing about Bluetooth: it takes an abstract status,
+ * and the observer in the implementation does the BLE-state mapping.
  */
 #pragma once
 #import <Foundation/Foundation.h>
 
-#define PX_BLE_STATUS_OFF          0
-#define PX_BLE_STATUS_ADVERTISING  1
-#define PX_BLE_STATUS_CONNECTED    2
+enum px_led_status {
+	PX_LED_STATUS_OFF,
+	PX_LED_STATUS_BLINK,
+	PX_LED_STATUS_ON,
+};
 
-@interface PXLEDController : OZObject
+@interface PXLEDController : OZObject <SingletonProtocol>
 
-- (id)init;
++ (void)initialize;
++ (instancetype)sharedInstance;
 
 /**
- * @brief Set BLE status LED behavior.
- * @param status PX_BLE_STATUS_OFF, PX_BLE_STATUS_ADVERTISING (blink), or PX_BLE_STATUS_CONNECTED (solid).
+ * @brief Set the indicator behaviour.
+ *
+ * PX_LED_STATUS_BLINK breathes on a dimmable indicator and blinks on one
+ * that is only on/off.
  */
-- (void)setBLEStatus:(int)status;
+- (void)setLEDStatus:(enum px_led_status)status;
 
 @end

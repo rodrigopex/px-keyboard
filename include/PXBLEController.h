@@ -5,37 +5,69 @@
 
 /**
  * @file PXBLEController.h
- * @brief BLE state machine with LED status indicators.
+ * @brief BLE link state machine, and the long-press gestures that drive it.
+ *
+ * Owns chan_ble_link, which is the single source of truth for the link
+ * state -- there is no cached _state ivar, -state reads the channel.
  */
 #pragma once
 #import <Foundation/Foundation.h>
-#import "PXLEDController.h"
 
-#define PX_BLE_STATE_IDLE         0
-#define PX_BLE_STATE_ADVERTISING  1
-#define PX_BLE_STATE_CONNECTED    2
+#include <zephyr/kernel.h>
+#include <zephyr/zbus/zbus.h>
 
-@interface PXBLEController : OZObject
+enum px_ble_state {
+	PX_BLE_STATE_IDLE,
+	PX_BLE_STATE_ADVERTISING,
+	PX_BLE_STATE_CONNECTED,
+};
 
-/** Singleton accessor (created via +initialize before main). */
-+ (PXBLEController *)shared;
+struct msg_ble_link {
+	enum px_ble_state state;
+};
 
-/** Enable Bluetooth and start advertising when ready. */
+ZBUS_CHAN_DECLARE(chan_ble_link); /* Type: struct msg_ble_link */
+
+@interface PXBLEController : OZObject <SingletonProtocol>
+
++ (void)initialize;
++ (instancetype)sharedInstance;
+
+/** @brief Enable Bluetooth; advertising starts once the stack is ready. */
 - (void)start;
 
-/** Current BLE state (PX_BLE_STATE_*). */
-- (int)state;
+/** @brief Current link state, read from chan_ble_link. */
+- (enum px_ble_state)state;
 
-/** Called by BLE low-level layer when BT stack is ready. */
+/* ---- Called by the BLE low-level callbacks ---- */
+
+/** @brief The BT stack finished initializing. */
 - (void)onBTReady;
 
-/** Called by BLE low-level layer on connection. */
+/** @brief A central connected. */
 - (void)onConnected;
 
-/** Called by BLE low-level layer on disconnection. */
+/** @brief The central went away. */
 - (void)onDisconnected;
 
-/** Unpair all bonded devices and restart advertising. */
-- (void)forgetBondAndReadvertise;
+/* ---- Gestures ---- */
+
+/**
+ * @brief Dispatch the long-press gesture table on each rising edge.
+ * @param longMask Bitmask of keys held past the long-press delay.
+ */
+- (void)handleLongMask:(uint8_t)longMask;
+
+/** @brief sw0 — stop advertising if advertising, start it if not. */
+- (void)toggleAdvertising;
+
+/** @brief sw1 — drop the current link, keeping the bond. */
+- (void)disconnectLink;
+
+/** @brief sw2 — push a battery level to the host. */
+- (void)reportBatteryLevel;
+
+/** @brief sw3 — forget every bond and go back to advertising. */
+- (void)forgetBond;
 
 @end
