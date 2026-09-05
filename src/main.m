@@ -26,23 +26,31 @@
  * Mirrors samples/zbus_service's lis_print_temp: an observer purely to
  * watch.
  *
- * Left synchronous, unlike the three real ones, and the reason is worth
- * stating since the LED listener had to stop being: a synchronous listener
- * runs on the publisher's stack, so it is only safe when it is shallow and
- * the publisher is not. This one is a single printk, and chan_keys is
- * published from the input-subsystem callback -- the system work queue,
- * 2048 bytes. The LED one ran from a Bluetooth connection callback at 1200
- * and overflowed it.
+ * Async, like every other observer in this app, and for one rule rather
+ * than a per-case judgement: **a listener never runs on the publisher's
+ * stack.** A synchronous one does, and the publishers here are all
+ * interrupt-driven paths with small stacks -- chan_keys is published from
+ * the input subsystem's own thread (CONFIG_INPUT_MODE_THREAD, 1024 bytes
+ * by default), and chan_ble_link from the Bluetooth connection callbacks
+ * (1200).
+ *
+ * The LED listener was synchronous and overflowed the Bluetooth thread.
+ * This one was then left synchronous on the argument that it is only a
+ * printk and its publisher had room -- an argument built on the wrong
+ * number: the input path is 1024, not the 2048 system work queue. Applying
+ * the rule costs a work-queue hop on a debug log and removes the whole
+ * class of fault instead of re-deciding it per listener.
  */
-OZM(ZBUS_LISTENER_DEFINE, lis_keys_debug, ^(const struct zbus_channel *chan) {
-	const struct msg_keys *keys = zbus_chan_const_msg(chan);
+OZM(ZBUS_ASYNC_LISTENER_DEFINE, alis_keys_debug,
+    ^(const struct zbus_channel *chan, const void *message) {
+	const struct msg_keys *keys = message;
 
 	OZLog("keys: mask=0x%02x long=0x%02x", keys->mask, keys->long_mask);
 });
 
-ZBUS_OBS_DECLARE(lis_keys_debug)
+ZBUS_OBS_DECLARE(alis_keys_debug)
 
-ZBUS_CHAN_ADD_OBS(chan_keys, lis_keys_debug, 4);
+ZBUS_CHAN_ADD_OBS(chan_keys, alis_keys_debug, 4);
 
 /*
  * Every singleton overrides -cDescription:maxLength:, so dumping the whole
