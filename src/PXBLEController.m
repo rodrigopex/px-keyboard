@@ -160,6 +160,40 @@ static void auth_cancel(struct bt_conn *conn)
  * the host's user types them. That is authenticated, and it is what a real
  * BLE keyboard does -- the console is the display.
  */
+/**
+ * @brief The pairing passkey, fixed.
+ *
+ * Six digits, because that is what a BLE passkey is -- the range is
+ * 0..999999 (`bt_conn_auth_cb.app_passkey`), so a shorter number is only
+ * expressible zero-padded, e.g. 5555 as 005555.
+ *
+ * **This weakens the pairing it enables.** Passkey Entry protects against
+ * a man in the middle because the six digits are unpredictable; a fixed
+ * value that anyone can read here is predictable, so the protection is
+ * nominal and an attacker who knows it can complete an authenticated
+ * pairing. Zephyr says as much on CONFIG_BT_APP_PASSKEY: "It is the
+ * responsibility of the application to use random and unique keys."
+ *
+ * It is deliberate anyway, for a keyboard on a desk: a random passkey has
+ * to be read off the console and typed within the host's timeout, and
+ * getting that wrong is what BT_SECURITY_ERR_AUTH_FAIL was. Returning
+ * BT_PASSKEY_RAND here restores the random one with no other change.
+ */
+#define PX_PAIRING_PASSKEY 555555U
+
+/*
+ * Supplies the passkey for the Passkey Entry method. Having this callback
+ * at all is what earns the "display" capability, per its own
+ * documentation -- irrespective of whether it returns a fixed key or
+ * BT_PASSKEY_RAND.
+ */
+static uint32_t auth_app_passkey(struct bt_conn *conn)
+{
+	ARG_UNUSED(conn);
+
+	return PX_PAIRING_PASSKEY;
+}
+
 static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
@@ -169,6 +203,7 @@ static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
 }
 
 static struct bt_conn_auth_cb auth_cb = {
+	.app_passkey = auth_app_passkey,
 	.passkey_display = auth_passkey_display,
 	.cancel = auth_cancel,
 };
