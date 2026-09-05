@@ -42,6 +42,11 @@
 	return self;
 }
 
+- (const struct pwm_dt_spec *)pwmSpec
+{
+	return _spec;
+}
+
 - (void)setLevel:(uint8_t)level
 {
 	uint32_t pulse = (uint32_t)(((uint64_t)_spec->period * level) / PX_LEVEL_MAX);
