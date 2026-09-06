@@ -16,8 +16,18 @@
 
 /**
  * @brief An indicator that can be switched on, off, or inverted.
+ *
+ * `<ObjectProtocol>` is what lets PXLEDController ask its indicator a
+ * runtime question at all. Clang resolves a message sent to an
+ * `id<PXToggleable>` against this protocol and its super-protocols and
+ * nowhere else, so `[_indicator conformsToProtocol:@protocol(PXDimmable)]`
+ * was `error: no known instance method for selector 'conformsToProtocol:'`
+ * however plainly OZObject declares it -- objective-z #307, fixed there and
+ * adopted here. It asks nothing of GPIOOutput or PWMOutput: every method it
+ * declares is defined once, on OZObject, and an inherited implementation
+ * satisfies a protocol requirement.
  */
-@protocol PXToggleable
+@protocol PXToggleable <ObjectProtocol>
 
 /** @brief Logical state of the indicator. */
 - (BOOL)isActive;

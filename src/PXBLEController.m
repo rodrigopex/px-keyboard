@@ -10,8 +10,8 @@
  *        long-press gestures.
  */
 #import "PXBLEController.h"
-#import "PXKeyboard.h"
 #import "GPIOOutput.h"
+#import "PXKeyboard.h"
 
 #include <string.h>
 #include <zephyr/bluetooth/bluetooth.h>
@@ -39,10 +39,10 @@ ZBUS_CHAN_DEFINE(chan_ble_link, struct msg_ble_link, NULL, NULL, ZBUS_OBSERVERS_
  * system work queue.
  */
 ZBUS_ASYNC_LISTENER_DEFINE(alis_ble_keys,
-    OZFN(^(const struct zbus_channel *chan, const void *message) {
-	const struct msg_keys *keys = message;
-	[[PXBLEController sharedInstance] handleLongMask:keys->long_mask];
-}));
+			   OZFN(^(const struct zbus_channel *chan, const void *message) {
+			     const struct msg_keys *keys = message;
+			     [[PXBLEController sharedInstance] handleLongMask:keys->long_mask];
+			   }));
 
 ZBUS_CHAN_ADD_OBS(chan_keys, alis_ble_keys, 3);
 
@@ -64,8 +64,7 @@ static const struct bt_data ad[] = {
 	 * Kconfig value rather than as two literals, so there is one place
 	 * that says what this device claims to be.
 	 */
-	BT_DATA_BYTES(BT_DATA_GAP_APPEARANCE,
-		      (CONFIG_BT_DEVICE_APPEARANCE & 0xff),
+	BT_DATA_BYTES(BT_DATA_GAP_APPEARANCE, (CONFIG_BT_DEVICE_APPEARANCE & 0xff),
 		      (CONFIG_BT_DEVICE_APPEARANCE >> 8)),
 	BT_DATA_BYTES(BT_DATA_UUID16_ALL, BT_UUID_16_ENCODE(BT_UUID_HIDS_VAL),
 		      BT_UUID_16_ENCODE(BT_UUID_BAS_VAL)),
@@ -94,41 +93,41 @@ static const struct bt_data sd[] = {
  */
 BT_CONN_CB_DEFINE(conn_callbacks) = {
 	.connected = OZFN(^(struct bt_conn *conn, uint8_t err) {
-		char addr[BT_ADDR_LE_STR_LEN];
+	  char addr[BT_ADDR_LE_STR_LEN];
 
-		bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+	  bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
-		if (err) {
-			printk("Failed to connect to %s (err 0x%02x)\n", addr, err);
-			return;
-		}
+	  if (err) {
+		  printk("Failed to connect to %s (err 0x%02x)\n", addr, err);
+		  return;
+	  }
 
-		printk("Connected: %s\n", addr);
+	  printk("Connected: %s\n", addr);
 
-		if (sCurrentConn) {
-			bt_conn_unref(sCurrentConn);
-		}
-		sCurrentConn = bt_conn_ref(conn);
+	  if (sCurrentConn) {
+		  bt_conn_unref(sCurrentConn);
+	  }
+	  sCurrentConn = bt_conn_ref(conn);
 
-		if (bt_conn_set_security(conn, BT_SECURITY_L2)) {
-			printk("Failed to set security\n");
-		}
+	  if (bt_conn_set_security(conn, BT_SECURITY_L2)) {
+		  printk("Failed to set security\n");
+	  }
 
-		[[PXBLEController sharedInstance] onConnected];
+	  [[PXBLEController sharedInstance] onConnected];
 	}),
 
 	.disconnected = OZFN(^(struct bt_conn *conn, uint8_t reason) {
-		char addr[BT_ADDR_LE_STR_LEN];
+	  char addr[BT_ADDR_LE_STR_LEN];
 
-		bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-		printk("Disconnected: %s (reason 0x%02x)\n", addr, reason);
+	  bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+	  printk("Disconnected: %s (reason 0x%02x)\n", addr, reason);
 
-		if (sCurrentConn) {
-			bt_conn_unref(sCurrentConn);
-			sCurrentConn = NULL;
-		}
+	  if (sCurrentConn) {
+		  bt_conn_unref(sCurrentConn);
+		  sCurrentConn = NULL;
+	  }
 
-		[[PXBLEController sharedInstance] onDisconnected];
+	  [[PXBLEController sharedInstance] onDisconnected];
 	}),
 
 	/*
@@ -140,20 +139,20 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 	 * callback for the purpose.
 	 */
 	.recycled = OZFN(^(void) {
-		[[PXBLEController sharedInstance] onConnectionRecycled];
+	  [[PXBLEController sharedInstance] onConnectionRecycled];
 	}),
 
 	.security_changed = OZFN(^(struct bt_conn *conn, bt_security_t level,
 				   enum bt_security_err err) {
-		char addr[BT_ADDR_LE_STR_LEN];
+	  char addr[BT_ADDR_LE_STR_LEN];
 
-		bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+	  bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
-		if (!err) {
-			printk("Security changed: %s level %u\n", addr, level);
-		} else {
-			printk("Security failed: %s level %u err %d\n", addr, level, err);
-		}
+	  if (!err) {
+		  printk("Security changed: %s level %u\n", addr, level);
+	  } else {
+		  printk("Security failed: %s level %u err %d\n", addr, level, err);
+	  }
 	}),
 };
 
@@ -213,102 +212,93 @@ static volatile int sTogglesLeft;
  * the timer does the work.
  */
 K_TIMER_DEFINE(sPasskeyTimer, OZFN(^(struct k_timer *timer) {
-	ARG_UNUSED(timer);
+		 ARG_UNUSED(timer);
 
-	if (sTogglesLeft <= 0) {
-		k_timer_stop(&sPasskeyTimer);
-		[sPasskeyLed setActive:NO];
-		return;
-	}
+		 if (sTogglesLeft <= 0) {
+			 k_timer_stop(&sPasskeyTimer);
+			 [sPasskeyLed setActive:NO];
+			 return;
+		 }
 
-	[sPasskeyLed toggle];
-	sTogglesLeft = sTogglesLeft - 1;
-}), NULL);
+		 [sPasskeyLed toggle];
+		 sTogglesLeft = sTogglesLeft - 1;
+	       }),
+	       NULL);
 
 /**
  * @brief The pairing passkey, generated per pairing.
  *
  * Drawn fresh for every pairing from the hardware RNG
  * (CONFIG_ENTROPY_NRF5_RNG), in PX_PASSKEY_MIN..PX_PASSKEY_MAX, and shown
- * by blinking led1 that many times. Zephyr's note on CONFIG_BT_APP_PASSKEY -- "it is
- * the responsibility of the application to use random and unique keys" --
- * is why this replaced a fixed 555555; see PX_PASSKEY_MAX for how much of
+ * by blinking led1 that many times. Zephyr's note on CONFIG_BT_APP_PASSKEY --
+ * "it is the responsibility of the application to use random and unique keys"
+ * -- is why this replaced a fixed 555555; see PX_PASSKEY_MAX for how much of
  * that responsibility a range of eleven actually discharges.
  *
  * Returning BT_PASSKEY_RAND instead would restore a full six-digit random
  * passkey, at the cost of needing the console to read it.
  */
 
-/*
- * Registering `.passkey_display` at all is what makes pairing possible
- * here, not a nicety.
- *
- * With no auth callbacks beyond `.cancel`, `smp.c::get_io_capa` returns
- * BT_SMP_IO_NO_INPUT_OUTPUT, so the only available method is Just Works --
- * and Zephyr then *clears* the MITM bit rather than requesting it
- * (smp.c:2936), so `CONFIG_BT_SMP_ENFORCE_MITM` has nothing to do with it.
- * The host is what refuses: a keyboard that cannot authenticate is a
- * keystroke-injection risk, so macOS rejected the pairing with
- * BT_SECURITY_ERR_AUTH_REQUIREMENT and dropped the link.
- *
- * `passkey_display` alone earns BT_SMP_IO_DISPLAY_ONLY, which against a
- * host's KeyboardDisplay selects Passkey Entry: this side shows six digits,
- * the host's user types them. That is authenticated, and it is what a real
- * BLE keyboard does -- the console is the display.
- *
- * The two `void` callbacks are blocks in the initializer, via OZFN, like
- * the connection callbacks; each captures nothing. `.app_passkey` cannot
- * be -- see the note on it below.
- */
-/*
- * Having this callback at all is what earns the "display" capability, per
- * its own documentation -- irrespective of whether it returns a fixed key
- * or BT_PASSKEY_RAND.
- *
- * A named function rather than a block, unlike the other two, and not by
- * choice: it returns `uint32_t`, and oz_static cannot carry a block's
- * return type. Written without one it infers `int`, which GCC rejects
- * against this field; written with one -- `^uint32_t(struct bt_conn *conn)`
- * -- it drops the return type *and* the parameter list, emitting
- * `int f(void)` and leaving `conn` undeclared. Filed upstream. The two
- * `void` callbacks below have nothing to infer, so they are blocks.
- */
-static uint32_t auth_app_passkey(struct bt_conn *conn)
-{
-	ARG_UNUSED(conn);
-
-	/* Inclusive at both ends: eight values for 3..10. The modulo bias
-	 * over 2^32 is immaterial next to the range being eight wide in the
-	 * first place. */
-	return (uint32_t)(PX_PASSKEY_MIN +
-			  sys_rand32_get() % (PX_PASSKEY_MAX - PX_PASSKEY_MIN + 1U));
-}
-
 static struct bt_conn_auth_cb auth_cb = {
-	.app_passkey = auth_app_passkey,
+	/*
+	 * Registering `.passkey_display` at all is what makes pairing possible
+	 * here, not a nicety.
+	 *
+	 * With no auth callbacks beyond `.cancel`, `smp.c::get_io_capa` returns
+	 * BT_SMP_IO_NO_INPUT_OUTPUT, so the only available method is Just Works --
+	 * and Zephyr then *clears* the MITM bit rather than requesting it
+	 * (smp.c:2936), so `CONFIG_BT_SMP_ENFORCE_MITM` has nothing to do with it.
+	 * The host is what refuses: a keyboard that cannot authenticate is a
+	 * keystroke-injection risk, so macOS rejected the pairing with
+	 * BT_SECURITY_ERR_AUTH_REQUIREMENT and dropped the link.
+	 *
+	 * `passkey_display` alone earns BT_SMP_IO_DISPLAY_ONLY, which against a
+	 * host's KeyboardDisplay selects Passkey Entry: this side shows six digits,
+	 * the host's user types them. That is authenticated, and it is what a real
+	 * BLE keyboard does -- the console is the display.
+	 *
+	 * All three callbacks are blocks in the initializer, via OZFN, like the
+	 * connection callbacks; each captures nothing.
+	 *
+	 * `.app_passkey` was a named function until objective-z #303, and not by
+	 * choice: it returns `uint32_t`, and oz_static carried no block return
+	 * type. Written without one it inferred `int`, which GCC rejects against
+	 * this field; written with one -- `^uint32_t(struct bt_conn *conn)` --
+	 * it dropped the return type *and* the parameter list, emitting
+	 * `int f(void)` and leaving `conn` undeclared. Both are fixed, so the
+	 * block form below is what the file now uses and the workaround is gone.
+	 */
+	.app_passkey = OZFN(^uint32_t(struct bt_conn *conn) {
+	  ARG_UNUSED(conn);
+
+	  /* Inclusive at both ends: eight values for 3..10. The modulo bias
+	   * over 2^32 is immaterial next to the range being eight wide in the
+	   * first place. */
+	  return (uint32_t)(PX_PASSKEY_MIN +
+			    sys_rand32_get() % (PX_PASSKEY_MAX - PX_PASSKEY_MIN + 1U));
+	}),
 
 	.passkey_display = OZFN(^(struct bt_conn *conn, unsigned int passkey) {
-		char addr[BT_ADDR_LE_STR_LEN];
+	  char addr[BT_ADDR_LE_STR_LEN];
 
-		bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-		printk("Pairing passkey for %s: %06u (%u blink(s) on led1)\n",
-		       addr, passkey, passkey);
+	  bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+	  printk("Pairing passkey for %s: %06u (%u blink(s) on led1)\n", addr, passkey, passkey);
 
-		/* Arm and return: the timer blinks, this thread does not. */
-		if (sPasskeyLed != nil) {
-			k_timer_stop(&sPasskeyTimer);
-			[sPasskeyLed setActive:NO];
-			sTogglesLeft = (int)(passkey * 2U);
-			k_timer_start(&sPasskeyTimer, K_MSEC(PX_PASSKEY_BLINK_MS),
-				      K_MSEC(PX_PASSKEY_BLINK_MS));
-		}
+	  /* Arm and return: the timer blinks, this thread does not. */
+	  if (sPasskeyLed != nil) {
+		  k_timer_stop(&sPasskeyTimer);
+		  [sPasskeyLed setActive:NO];
+		  sTogglesLeft = (int)(passkey * 2U);
+		  k_timer_start(&sPasskeyTimer, K_MSEC(PX_PASSKEY_BLINK_MS),
+				K_MSEC(PX_PASSKEY_BLINK_MS));
+	  }
 	}),
 
 	.cancel = OZFN(^(struct bt_conn *conn) {
-		char addr[BT_ADDR_LE_STR_LEN];
+	  char addr[BT_ADDR_LE_STR_LEN];
 
-		bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-		printk("Pairing cancelled: %s\n", addr);
+	  bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+	  printk("Pairing cancelled: %s\n", addr);
 	}),
 };
 
