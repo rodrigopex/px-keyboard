@@ -11,6 +11,7 @@
  */
 #import "PXBLEController.h"
 #import "PXKeyboard.h"
+#import "GPIOOutput.h"
 
 #include <string.h>
 #include <zephyr/bluetooth/bluetooth.h>
@@ -19,6 +20,8 @@
 #include <zephyr/bluetooth/hci.h>
 #include <zephyr/bluetooth/services/bas.h>
 #include <zephyr/bluetooth/uuid.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/random/random.h>
 #include <zephyr/settings/settings.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/types.h>
@@ -139,27 +142,77 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 
 /* ---- Pairing ---- */
 
+/* ---- Passkey display: blink the count on led1 ---- */
+
 /**
- * @brief The pairing passkey, fixed.
+ * @brief Highest passkey this generates, and so the most blinks to count.
  *
- * Six digits, because that is what a BLE passkey is -- the range is
- * 0..999999 (`bt_conn_auth_cb.app_passkey`), so a shorter number is only
- * expressible zero-padded, e.g. 5555 as 005555.
+ * The passkey is the blink count itself: `0000%02u` of a number in
+ * 0..PX_PASSKEY_MAX, so 7 blinks means typing `000007`. Six digits because
+ * that is what BLE requires; the leading zeros are what let a two-digit
+ * count fill it.
  *
- * **This weakens the pairing it enables.** Passkey Entry protects against
- * a man in the middle because the six digits are unpredictable; a fixed
- * value that anyone can read here is predictable, so the protection is
- * nominal and an attacker who knows it can complete an authenticated
- * pairing. Zephyr says as much on CONFIG_BT_APP_PASSKEY: "It is the
- * responsibility of the application to use random and unique keys."
- *
- * It is deliberate anyway, for a keyboard on a desk: a random passkey has
- * to be read off the console and typed within the host's timeout, and
- * getting that wrong is what BT_SECURITY_ERR_AUTH_FAIL was. Returning
- * BT_PASSKEY_RAND from `.app_passkey` restores the random one with no other
- * change.
+ * **This is far weaker than a full passkey, deliberately.** Passkey Entry
+ * defeats a man in the middle because six digits are unpredictable; with
+ * %u+1 possible values an attacker has better than a one-in-%u chance per
+ * attempt. That is a real improvement on the fixed key it replaces, which
+ * was a certainty, and nowhere near the 10^6 the mechanism is designed
+ * around. It buys a passkey readable off a board with no screen.
  */
-#define PX_PAIRING_PASSKEY 555555U
+#define PX_PASSKEY_MAX 10U
+
+/**
+ * @brief Half-period of one blink, so a count of N takes N*2*this.
+ *
+ * Named for the passkey specifically: PXLEDController has its own
+ * PX_BLINK_MS, and every .m here is spliced into one translation unit, so
+ * an unqualified name collides.
+ */
+#define PX_PASSKEY_BLINK_MS 250
+
+static const struct gpio_dt_spec kLed1Spec = GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios);
+
+/*
+ * File scope rather than captured: a hoisted block takes no captures, and
+ * the static bar does not count a file-scope variable as one. Same channel
+ * PXLEDController's own timer block uses.
+ */
+static GPIOOutput *sPasskeyLed;
+static volatile int sTogglesLeft;
+
+/*
+ * Blinking cannot happen in the callback that wants it. `.passkey_display`
+ * runs on the BT RX thread during SMP, and sleeping there for up to five
+ * seconds would stall the pairing it is part of -- on the same 2048-byte
+ * stack that already overflowed once. So the callback only arms this, and
+ * the timer does the work.
+ */
+K_TIMER_DEFINE(sPasskeyTimer, OZFN(^(struct k_timer *timer) {
+	ARG_UNUSED(timer);
+
+	if (sTogglesLeft <= 0) {
+		k_timer_stop(&sPasskeyTimer);
+		[sPasskeyLed setActive:NO];
+		return;
+	}
+
+	[sPasskeyLed toggle];
+	sTogglesLeft = sTogglesLeft - 1;
+}), NULL);
+
+/**
+ * @brief The pairing passkey, generated per pairing.
+ *
+ * Drawn fresh for every pairing from the hardware RNG
+ * (CONFIG_ENTROPY_NRF5_RNG), in 0..PX_PASSKEY_MAX, and shown by blinking
+ * led1 that many times. Zephyr's note on CONFIG_BT_APP_PASSKEY -- "it is
+ * the responsibility of the application to use random and unique keys" --
+ * is why this replaced a fixed 555555; see PX_PASSKEY_MAX for how much of
+ * that responsibility a range of eleven actually discharges.
+ *
+ * Returning BT_PASSKEY_RAND instead would restore a full six-digit random
+ * passkey, at the cost of needing the console to read it.
+ */
 
 /*
  * Registering `.passkey_display` at all is what makes pairing possible
@@ -199,7 +252,9 @@ static uint32_t auth_app_passkey(struct bt_conn *conn)
 {
 	ARG_UNUSED(conn);
 
-	return PX_PAIRING_PASSKEY;
+	/* `% (MAX + 1)` for an inclusive range. The modulo bias over 2^32 is
+	 * immaterial next to the range being eleven wide in the first place. */
+	return (uint32_t)(sys_rand32_get() % (PX_PASSKEY_MAX + 1U));
 }
 
 static struct bt_conn_auth_cb auth_cb = {
@@ -209,7 +264,17 @@ static struct bt_conn_auth_cb auth_cb = {
 		char addr[BT_ADDR_LE_STR_LEN];
 
 		bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-		printk("Pairing passkey for %s: %06u\n", addr, passkey);
+		printk("Pairing passkey for %s: %06u (%u blink(s) on led1)\n",
+		       addr, passkey, passkey);
+
+		/* Arm and return: the timer blinks, this thread does not. */
+		if (sPasskeyLed != nil) {
+			k_timer_stop(&sPasskeyTimer);
+			[sPasskeyLed setActive:NO];
+			sTogglesLeft = (int)(passkey * 2U);
+			k_timer_start(&sPasskeyTimer, K_MSEC(PX_PASSKEY_BLINK_MS),
+				      K_MSEC(PX_PASSKEY_BLINK_MS));
+		}
 	}),
 
 	.cancel = OZFN(^(struct bt_conn *conn) {
@@ -298,6 +363,10 @@ static PXBLEController *sSharedController;
 	if (self) {
 		_lastLongMask = 0;
 		_advertising = NO;
+
+		if (kLed1Spec.port) {
+			sPasskeyLed = [[GPIOOutput alloc] initWithDTSpec:&kLed1Spec flags:0];
+		}
 
 		_gestures[PX_KEY_P] = @selector(toggleAdvertising);
 		_gestures[PX_KEY_X] = @selector(disconnectLink);
