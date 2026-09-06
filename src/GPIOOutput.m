@@ -13,8 +13,7 @@
 	BOOL _active;
 }
 
-- (id)initWithDTSpec:(const struct gpio_dt_spec *)spec
-	       flags:(gpio_flags_t)flags
+- (id)initWithDTSpec:(const struct gpio_dt_spec *)spec flags:(gpio_flags_t)flags
 {
 	self = [super initWithDTSpec:spec flags:(GPIO_OUTPUT | flags)];
 	if (self) {
@@ -42,8 +41,8 @@
 
 - (int)cDescription:(char *)buf maxLength:(size_t)maxLen
 {
-	return snprintk(buf, maxLen, "<%s: %s pin %u, active=%d>",
-			"GPIOOutput", super.spec->port->name, super.spec->pin, _active);
+	return snprintk(buf, maxLen, "<%s: %s pin %u, active=%d>", "GPIOOutput",
+			super.spec->port->name, super.spec->pin, _active);
 }
 
 @end

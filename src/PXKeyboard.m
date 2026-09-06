@@ -38,10 +38,13 @@ ZBUS_CHAN_DEFINE(chan_keys, struct msg_keys, NULL, NULL, ZBUS_OBSERVERS_EMPTY,
  * facts. Zephyr's INPUT_CALLBACK_DEFINE_NAMED is the way out if a second
  * one is ever needed here.
  */
-OZM(INPUT_CALLBACK_DEFINE, NULL, ^(struct input_event *evt, void *user_data) {
-	ARG_UNUSED(user_data);
-	[[PXKeyboard sharedInstance] handleInputEvent:evt];
-}, NULL);
+OZM(
+	INPUT_CALLBACK_DEFINE, NULL,
+	^(struct input_event *evt, void *user_data) {
+	  ARG_UNUSED(user_data);
+	  [[PXKeyboard sharedInstance] handleInputEvent:evt];
+	},
+	NULL);
 
 static PXKeyboard *sSharedKeyboard;
 

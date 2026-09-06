@@ -17,7 +17,7 @@
 /**
  * @brief GPIO output pin.
  */
-@interface GPIOOutput : GPIOPin <PXToggleable>
+@interface GPIOOutput: GPIOPin <PXToggleable>
 
 /**
  * @brief Initialize a GPIO output pin.
@@ -25,8 +25,7 @@
  * @param flags Extra GPIO flags (ORed with GPIO_OUTPUT).
  * @return Initialized instance, or nil on configuration failure.
  */
-- (id)initWithDTSpec:(const struct gpio_dt_spec *)spec
-	       flags:(gpio_flags_t)flags;
+- (id)initWithDTSpec:(const struct gpio_dt_spec *)spec flags:(gpio_flags_t)flags;
 
 /**
  * @brief Get the logical active state of the pin.

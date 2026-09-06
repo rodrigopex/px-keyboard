@@ -28,7 +28,7 @@ struct msg_ble_link {
 
 ZBUS_CHAN_DECLARE(chan_ble_link); /* Type: struct msg_ble_link */
 
-@interface PXBLEController : OZObject <SingletonProtocol>
+@interface PXBLEController: OZObject <SingletonProtocol>
 
 + (void)initialize;
 + (instancetype)sharedInstance;

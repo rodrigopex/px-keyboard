@@ -43,11 +43,11 @@
  * class of fault instead of re-deciding it per listener.
  */
 ZBUS_ASYNC_LISTENER_DEFINE(alis_keys_debug,
-    OZFN(^(const struct zbus_channel *chan, const void *message) {
-	const struct msg_keys *keys = message;
+			   OZFN(^(const struct zbus_channel *chan, const void *message) {
+			     const struct msg_keys *keys = message;
 
-	OZLog("keys: mask=0x%02x long=0x%02x", keys->mask, keys->long_mask);
-}));
+			     OZLog("keys: mask=0x%02x long=0x%02x", keys->mask, keys->long_mask);
+			   }));
 
 ZBUS_CHAN_ADD_OBS(chan_keys, alis_keys_debug, 4);
 
@@ -57,18 +57,18 @@ ZBUS_CHAN_ADD_OBS(chan_keys, alis_keys_debug, 4);
  * pointer, so the block needs OZFN.
  */
 SHELL_CMD_REGISTER(px_info, NULL, "Dump PX keyboard state",
-    OZFN(^(const struct shell *sh, size_t argc, char **argv) {
-	ARG_UNUSED(sh);
-	ARG_UNUSED(argc);
-	ARG_UNUSED(argv);
+		   OZFN(^(const struct shell *sh, size_t argc, char **argv) {
+		     ARG_UNUSED(sh);
+		     ARG_UNUSED(argc);
+		     ARG_UNUSED(argv);
 
-	OZLog("%@", [PXKeyboard sharedInstance]);
-	OZLog("%@", [PXBLEController sharedInstance]);
-	OZLog("%@", [PXHIDService sharedInstance]);
-	OZLog("%@", [PXLEDController sharedInstance]);
+		     OZLog("%@", [PXKeyboard sharedInstance]);
+		     OZLog("%@", [PXBLEController sharedInstance]);
+		     OZLog("%@", [PXHIDService sharedInstance]);
+		     OZLog("%@", [PXLEDController sharedInstance]);
 
-	return 0;
-}));
+		     return 0;
+		   }));
 
 int main(void)
 {

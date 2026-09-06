@@ -70,29 +70,29 @@ static uint8_t sReportMap[] = {
 	HID_USAGE_PAGE(HID_USAGE_GEN_DESKTOP),
 	HID_USAGE(HID_USAGE_GEN_DESKTOP_KEYBOARD),
 	HID_COLLECTION(HID_COLLECTION_APPLICATION),
-		HID_REPORT_ID(0x01),
-		/* Modifier keys — one bit each */
-		HID_USAGE_PAGE(HID_USAGE_GEN_KEYBOARD),
-		HID_USAGE_MIN8(0xE0), /* Left Control  */
-		HID_USAGE_MAX8(0xE7), /* Right GUI     */
-		HID_LOGICAL_MIN8(0),
-		HID_LOGICAL_MAX8(1),
-		HID_REPORT_SIZE(1),
-		HID_REPORT_COUNT(8),
-		HID_INPUT(0x02), /* Data, Var, Abs */
-		/* Reserved byte */
-		HID_REPORT_SIZE(8),
-		HID_REPORT_COUNT(1),
-		HID_INPUT(0x01), /* Const */
-		/* Key array */
-		HID_USAGE_PAGE(HID_USAGE_GEN_KEYBOARD),
-		HID_USAGE_MIN8(0),
-		HID_USAGE_MAX8(101),
-		HID_LOGICAL_MIN8(0),
-		HID_LOGICAL_MAX8(101),
-		HID_REPORT_SIZE(8),
-		HID_REPORT_COUNT(PX_REPORT_KEYS),
-		HID_INPUT(0x00), /* Data, Array */
+	HID_REPORT_ID(0x01),
+	/* Modifier keys — one bit each */
+	HID_USAGE_PAGE(HID_USAGE_GEN_KEYBOARD),
+	HID_USAGE_MIN8(0xE0), /* Left Control  */
+	HID_USAGE_MAX8(0xE7), /* Right GUI     */
+	HID_LOGICAL_MIN8(0),
+	HID_LOGICAL_MAX8(1),
+	HID_REPORT_SIZE(1),
+	HID_REPORT_COUNT(8),
+	HID_INPUT(0x02), /* Data, Var, Abs */
+	/* Reserved byte */
+	HID_REPORT_SIZE(8),
+	HID_REPORT_COUNT(1),
+	HID_INPUT(0x01), /* Const */
+	/* Key array */
+	HID_USAGE_PAGE(HID_USAGE_GEN_KEYBOARD),
+	HID_USAGE_MIN8(0),
+	HID_USAGE_MAX8(101),
+	HID_LOGICAL_MIN8(0),
+	HID_LOGICAL_MAX8(101),
+	HID_REPORT_SIZE(8),
+	HID_REPORT_COUNT(PX_REPORT_KEYS),
+	HID_INPUT(0x00), /* Data, Array */
 	HID_END_COLLECTION,
 };
 
@@ -147,20 +147,20 @@ static ssize_t write_ctrl_point(struct bt_conn *conn, const struct bt_gatt_attr 
 #define HID_PERM_READ  BT_GATT_PERM_READ_ENCRYPT
 #define HID_PERM_WRITE BT_GATT_PERM_WRITE_ENCRYPT
 
-BT_GATT_SERVICE_DEFINE(hid_kbd_svc,
-	BT_GATT_PRIMARY_SERVICE(BT_UUID_HIDS),
-	BT_GATT_CHARACTERISTIC(BT_UUID_HIDS_INFO, BT_GATT_CHRC_READ, BT_GATT_PERM_READ,
-			       read_info, NULL, &sInfo),
-	BT_GATT_CHARACTERISTIC(BT_UUID_HIDS_REPORT_MAP, BT_GATT_CHRC_READ, BT_GATT_PERM_READ,
-			       read_report_map, NULL, NULL),
-	BT_GATT_CHARACTERISTIC(BT_UUID_HIDS_REPORT, BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY,
-			       HID_PERM_READ, read_input_report, NULL, NULL),
-	BT_GATT_CCC(input_ccc_changed, HID_PERM_READ | HID_PERM_WRITE),
-	BT_GATT_DESCRIPTOR(BT_UUID_HIDS_REPORT_REF, BT_GATT_PERM_READ, read_report, NULL,
-			   &sInputRef),
-	BT_GATT_CHARACTERISTIC(BT_UUID_HIDS_CTRL_POINT, BT_GATT_CHRC_WRITE_WITHOUT_RESP,
-			       BT_GATT_PERM_WRITE, NULL, write_ctrl_point, &sCtrlPoint),
-);
+BT_GATT_SERVICE_DEFINE(hid_kbd_svc, BT_GATT_PRIMARY_SERVICE(BT_UUID_HIDS),
+		       BT_GATT_CHARACTERISTIC(BT_UUID_HIDS_INFO, BT_GATT_CHRC_READ,
+					      BT_GATT_PERM_READ, read_info, NULL, &sInfo),
+		       BT_GATT_CHARACTERISTIC(BT_UUID_HIDS_REPORT_MAP, BT_GATT_CHRC_READ,
+					      BT_GATT_PERM_READ, read_report_map, NULL, NULL),
+		       BT_GATT_CHARACTERISTIC(BT_UUID_HIDS_REPORT,
+					      BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY,
+					      HID_PERM_READ, read_input_report, NULL, NULL),
+		       BT_GATT_CCC(input_ccc_changed, HID_PERM_READ | HID_PERM_WRITE),
+		       BT_GATT_DESCRIPTOR(BT_UUID_HIDS_REPORT_REF, BT_GATT_PERM_READ, read_report,
+					  NULL, &sInputRef),
+		       BT_GATT_CHARACTERISTIC(BT_UUID_HIDS_CTRL_POINT,
+					      BT_GATT_CHRC_WRITE_WITHOUT_RESP, BT_GATT_PERM_WRITE,
+					      NULL, write_ctrl_point, &sCtrlPoint), );
 
 /*
  * The input-report characteristic declaration, which bt_gatt_notify resolves
@@ -178,10 +178,10 @@ BT_GATT_SERVICE_DEFINE(hid_kbd_svc,
  * async listener's FIFO preserves order, which HID reports need.
  */
 ZBUS_ASYNC_LISTENER_DEFINE(alis_hid_report,
-    OZFN(^(const struct zbus_channel *chan, const void *message) {
-	const struct msg_keys *keys = message;
-	[[PXHIDService sharedInstance] sendReportForMask:keys->mask];
-}));
+			   OZFN(^(const struct zbus_channel *chan, const void *message) {
+			     const struct msg_keys *keys = message;
+			     [[PXHIDService sharedInstance] sendReportForMask:keys->mask];
+			   }));
 
 ZBUS_CHAN_ADD_OBS(chan_keys, alis_hid_report, 2);
 

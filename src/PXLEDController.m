@@ -27,7 +27,6 @@
 static const struct gpio_dt_spec kLed0Spec = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
 static const struct pwm_dt_spec kPwmLed0Spec = PWM_DT_SPEC_GET(DT_ALIAS(pwm_led0));
 
-
 /** @brief Blink half-period, for an indicator that is only on/off. */
 #define PX_BLINK_MS 500
 
@@ -55,27 +54,29 @@ static volatile int sBreathLevel;
 static volatile int sBreathDelta;
 
 K_TIMER_DEFINE(sIndicatorTimer, OZFN(^(struct k_timer *timer) {
-	id<PXToggleable> indicator = (__bridge id<PXToggleable>)k_timer_user_data_get(timer);
+		 id<PXToggleable> indicator =
+			 (__bridge id<PXToggleable>)k_timer_user_data_get(timer);
 
-	if (!sBreathes) {
-		[indicator toggle];
-		return;
-	}
+		 if (!sBreathes) {
+			 [indicator toggle];
+			 return;
+		 }
 
-	int level = sBreathLevel + sBreathDelta;
+		 int level = sBreathLevel + sBreathDelta;
 
-	if (level >= PX_BREATH_MAX) {
-		level = PX_BREATH_MAX;
-		sBreathDelta = -PX_BREATH_STEP;
-	} else if (level <= 0) {
-		level = 0;
-		sBreathDelta = PX_BREATH_STEP;
-	}
+		 if (level >= PX_BREATH_MAX) {
+			 level = PX_BREATH_MAX;
+			 sBreathDelta = -PX_BREATH_STEP;
+		 } else if (level <= 0) {
+			 level = 0;
+			 sBreathDelta = PX_BREATH_STEP;
+		 }
 
-	sBreathLevel = level;
+		 sBreathLevel = level;
 
-	[(id<PXDimmable>)indicator setLevel:(uint8_t)level];
-}), NULL);
+		 [(id<PXDimmable>)indicator setLevel:(uint8_t)level];
+	       }),
+	       NULL);
 
 /*
  * The only place BLE state becomes indicator state.
@@ -93,24 +94,24 @@ K_TIMER_DEFINE(sIndicatorTimer, OZFN(^(struct k_timer *timer) {
  * has no deadline, so the work queue hop costs nothing that matters.
  */
 ZBUS_ASYNC_LISTENER_DEFINE(alis_led_status,
-    OZFN(^(const struct zbus_channel *chan, const void *message) {
-	const struct msg_ble_link *link = message;
-	enum px_led_status status = PX_LED_STATUS_OFF;
+			   OZFN(^(const struct zbus_channel *chan, const void *message) {
+			     const struct msg_ble_link *link = message;
+			     enum px_led_status status = PX_LED_STATUS_OFF;
 
-	switch (link->state) {
-	case PX_BLE_STATE_ADVERTISING:
-		status = PX_LED_STATUS_BLINK;
-		break;
-	case PX_BLE_STATE_CONNECTED:
-		status = PX_LED_STATUS_ON;
-		break;
-	case PX_BLE_STATE_IDLE:
-		status = PX_LED_STATUS_OFF;
-		break;
-	}
+			     switch (link->state) {
+			     case PX_BLE_STATE_ADVERTISING:
+				     status = PX_LED_STATUS_BLINK;
+				     break;
+			     case PX_BLE_STATE_CONNECTED:
+				     status = PX_LED_STATUS_ON;
+				     break;
+			     case PX_BLE_STATE_IDLE:
+				     status = PX_LED_STATUS_OFF;
+				     break;
+			     }
 
-	[[PXLEDController sharedInstance] setLEDStatus:status];
-}));
+			     [[PXLEDController sharedInstance] setLEDStatus:status];
+			   }));
 
 ZBUS_CHAN_ADD_OBS(chan_ble_link, alis_led_status, 3);
 
@@ -182,12 +183,10 @@ static PXLEDController *sSharedLEDController;
 		sBreathDelta = PX_BREATH_STEP;
 
 		if (_dimmable) {
-			k_timer_start(&sIndicatorTimer, K_MSEC(PX_BREATH_MS),
-				      K_MSEC(PX_BREATH_MS));
+			k_timer_start(&sIndicatorTimer, K_MSEC(PX_BREATH_MS), K_MSEC(PX_BREATH_MS));
 			OZLog("PXLEDController: breathing");
 		} else {
-			k_timer_start(&sIndicatorTimer, K_MSEC(PX_BLINK_MS),
-				      K_MSEC(PX_BLINK_MS));
+			k_timer_start(&sIndicatorTimer, K_MSEC(PX_BLINK_MS), K_MSEC(PX_BLINK_MS));
 			OZLog("PXLEDController: blinking");
 		}
 		break;

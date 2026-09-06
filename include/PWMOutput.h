@@ -20,7 +20,7 @@
 /**
  * @brief A PWM channel driven as a variable-brightness indicator.
  */
-@interface PWMOutput : OZObject <PXDimmable>
+@interface PWMOutput: OZObject <PXDimmable>
 
 /**
  * @brief Initialize from a devicetree PWM spec.
