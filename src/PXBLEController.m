@@ -50,6 +50,23 @@ ZBUS_CHAN_ADD_OBS(chan_keys, alis_ble_keys, 3);
 
 static const struct bt_data ad[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+	/*
+	 * The appearance, so a host shows a keyboard rather than a generic
+	 * device while scanning.
+	 *
+	 * `CONFIG_BT_DEVICE_APPEARANCE=961` on its own does *not* do this: it
+	 * fills the GAP Appearance characteristic, which a host reads over
+	 * GATT only after connecting -- by which point the icon beside the
+	 * name, and in the pairing prompt, has already been chosen. It has to
+	 * be in the advertisement to reach a scanner.
+	 *
+	 * Little-endian, so 961 (0x03C1) is 0xC1, 0x03. Written from the
+	 * Kconfig value rather than as two literals, so there is one place
+	 * that says what this device claims to be.
+	 */
+	BT_DATA_BYTES(BT_DATA_GAP_APPEARANCE,
+		      (CONFIG_BT_DEVICE_APPEARANCE & 0xff),
+		      (CONFIG_BT_DEVICE_APPEARANCE >> 8)),
 	BT_DATA_BYTES(BT_DATA_UUID16_ALL, BT_UUID_16_ENCODE(BT_UUID_HIDS_VAL),
 		      BT_UUID_16_ENCODE(BT_UUID_BAS_VAL)),
 };
