@@ -162,20 +162,28 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 /* ---- Passkey display: blink the count on led1 ---- */
 
 /**
- * @brief Highest passkey this generates, and so the most blinks to count.
+ * @brief Blink count range, which is also the passkey range.
  *
  * The passkey is the blink count itself: `0000%02u` of a number in
- * 0..PX_PASSKEY_MAX, so 7 blinks means typing `000007`. Six digits because
- * that is what BLE requires; the leading zeros are what let a two-digit
- * count fill it.
+ * PX_PASSKEY_MIN..PX_PASSKEY_MAX, so 7 blinks means typing `000007`. Six
+ * digits because that is what BLE requires; the leading zeros are what let
+ * a two-digit count fill it.
  *
- * **This is far weaker than a full passkey, deliberately.** Passkey Entry
- * defeats a man in the middle because six digits are unpredictable; with
- * %u+1 possible values an attacker has better than a one-in-%u chance per
- * attempt. That is a real improvement on the fixed key it replaces, which
- * was a certainty, and nowhere near the 10^6 the mechanism is designed
- * around. It buys a passkey readable off a board with no screen.
+ * The floor is 3, not 0. A count of zero blinks nothing, which reads
+ * exactly like a board that failed to start the sequence; one or two are
+ * short enough to be missed by someone who looked up a moment late. Three
+ * is the smallest count that is unambiguously a count.
+ *
+ * **This is far weaker than a full passkey, deliberately, and the floor
+ * costs a little more of it.** Passkey Entry defeats a man in the middle
+ * because six digits are unpredictable; across 3..10 there are eight
+ * values, so an attacker has a one-in-eight chance per attempt -- against
+ * eleven before the floor, and 10^6 for the mechanism as designed. It is
+ * still a real improvement on the fixed key it replaced, which was a
+ * certainty. What it buys is a passkey readable off a board with no
+ * screen, and readable *reliably*, which the zero was not.
  */
+#define PX_PASSKEY_MIN 3U
 #define PX_PASSKEY_MAX 10U
 
 /**
@@ -221,8 +229,8 @@ K_TIMER_DEFINE(sPasskeyTimer, OZFN(^(struct k_timer *timer) {
  * @brief The pairing passkey, generated per pairing.
  *
  * Drawn fresh for every pairing from the hardware RNG
- * (CONFIG_ENTROPY_NRF5_RNG), in 0..PX_PASSKEY_MAX, and shown by blinking
- * led1 that many times. Zephyr's note on CONFIG_BT_APP_PASSKEY -- "it is
+ * (CONFIG_ENTROPY_NRF5_RNG), in PX_PASSKEY_MIN..PX_PASSKEY_MAX, and shown
+ * by blinking led1 that many times. Zephyr's note on CONFIG_BT_APP_PASSKEY -- "it is
  * the responsibility of the application to use random and unique keys" --
  * is why this replaced a fixed 555555; see PX_PASSKEY_MAX for how much of
  * that responsibility a range of eleven actually discharges.
@@ -269,9 +277,11 @@ static uint32_t auth_app_passkey(struct bt_conn *conn)
 {
 	ARG_UNUSED(conn);
 
-	/* `% (MAX + 1)` for an inclusive range. The modulo bias over 2^32 is
-	 * immaterial next to the range being eleven wide in the first place. */
-	return (uint32_t)(sys_rand32_get() % (PX_PASSKEY_MAX + 1U));
+	/* Inclusive at both ends: eight values for 3..10. The modulo bias
+	 * over 2^32 is immaterial next to the range being eight wide in the
+	 * first place. */
+	return (uint32_t)(PX_PASSKEY_MIN +
+			  sys_rand32_get() % (PX_PASSKEY_MAX - PX_PASSKEY_MIN + 1U));
 }
 
 static struct bt_conn_auth_cb auth_cb = {
