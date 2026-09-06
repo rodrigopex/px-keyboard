@@ -139,31 +139,6 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 
 /* ---- Pairing ---- */
 
-static void auth_cancel(struct bt_conn *conn)
-{
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-	printk("Pairing cancelled: %s\n", addr);
-}
-
-/*
- * Displaying a passkey is what makes pairing possible at all here, not a
- * nicety.
- *
- * With no auth callbacks beyond `.cancel`, `smp.c::get_io_capa` returns
- * BT_SMP_IO_NO_INPUT_OUTPUT, so the only available method is Just Works --
- * and Zephyr then *clears* the MITM bit rather than requesting it
- * (smp.c:2936), so `CONFIG_BT_SMP_ENFORCE_MITM` has nothing to do with it.
- * The host is what refuses: a keyboard that cannot authenticate is a
- * keystroke-injection risk, so macOS rejected the pairing with
- * BT_SECURITY_ERR_AUTH_REQUIREMENT and dropped the link.
- *
- * `passkey_display` alone earns BT_SMP_IO_DISPLAY_ONLY, which against a
- * host's KeyboardDisplay selects Passkey Entry: this side shows six digits,
- * the host's user types them. That is authenticated, and it is what a real
- * BLE keyboard does -- the console is the display.
- */
 /**
  * @brief The pairing passkey, fixed.
  *
@@ -181,15 +156,44 @@ static void auth_cancel(struct bt_conn *conn)
  * It is deliberate anyway, for a keyboard on a desk: a random passkey has
  * to be read off the console and typed within the host's timeout, and
  * getting that wrong is what BT_SECURITY_ERR_AUTH_FAIL was. Returning
- * BT_PASSKEY_RAND here restores the random one with no other change.
+ * BT_PASSKEY_RAND from `.app_passkey` restores the random one with no other
+ * change.
  */
 #define PX_PAIRING_PASSKEY 555555U
 
 /*
- * Supplies the passkey for the Passkey Entry method. Having this callback
- * at all is what earns the "display" capability, per its own
- * documentation -- irrespective of whether it returns a fixed key or
- * BT_PASSKEY_RAND.
+ * Registering `.passkey_display` at all is what makes pairing possible
+ * here, not a nicety.
+ *
+ * With no auth callbacks beyond `.cancel`, `smp.c::get_io_capa` returns
+ * BT_SMP_IO_NO_INPUT_OUTPUT, so the only available method is Just Works --
+ * and Zephyr then *clears* the MITM bit rather than requesting it
+ * (smp.c:2936), so `CONFIG_BT_SMP_ENFORCE_MITM` has nothing to do with it.
+ * The host is what refuses: a keyboard that cannot authenticate is a
+ * keystroke-injection risk, so macOS rejected the pairing with
+ * BT_SECURITY_ERR_AUTH_REQUIREMENT and dropped the link.
+ *
+ * `passkey_display` alone earns BT_SMP_IO_DISPLAY_ONLY, which against a
+ * host's KeyboardDisplay selects Passkey Entry: this side shows six digits,
+ * the host's user types them. That is authenticated, and it is what a real
+ * BLE keyboard does -- the console is the display.
+ *
+ * The two `void` callbacks are blocks in the initializer, via OZFN, like
+ * the connection callbacks; each captures nothing. `.app_passkey` cannot
+ * be -- see the note on it below.
+ */
+/*
+ * Having this callback at all is what earns the "display" capability, per
+ * its own documentation -- irrespective of whether it returns a fixed key
+ * or BT_PASSKEY_RAND.
+ *
+ * A named function rather than a block, unlike the other two, and not by
+ * choice: it returns `uint32_t`, and oz_static cannot carry a block's
+ * return type. Written without one it infers `int`, which GCC rejects
+ * against this field; written with one -- `^uint32_t(struct bt_conn *conn)`
+ * -- it drops the return type *and* the parameter list, emitting
+ * `int f(void)` and leaving `conn` undeclared. Filed upstream. The two
+ * `void` callbacks below have nothing to infer, so they are blocks.
  */
 static uint32_t auth_app_passkey(struct bt_conn *conn)
 {
@@ -198,18 +202,22 @@ static uint32_t auth_app_passkey(struct bt_conn *conn)
 	return PX_PAIRING_PASSKEY;
 }
 
-static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
-{
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-	printk("Pairing passkey for %s: %06u\n", addr, passkey);
-}
-
 static struct bt_conn_auth_cb auth_cb = {
 	.app_passkey = auth_app_passkey,
-	.passkey_display = auth_passkey_display,
-	.cancel = auth_cancel,
+
+	.passkey_display = OZFN(^(struct bt_conn *conn, unsigned int passkey) {
+		char addr[BT_ADDR_LE_STR_LEN];
+
+		bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+		printk("Pairing passkey for %s: %06u\n", addr, passkey);
+	}),
+
+	.cancel = OZFN(^(struct bt_conn *conn) {
+		char addr[BT_ADDR_LE_STR_LEN];
+
+		bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+		printk("Pairing cancelled: %s\n", addr);
+	}),
 };
 
 /*
