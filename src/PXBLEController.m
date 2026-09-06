@@ -35,13 +35,11 @@ ZBUS_CHAN_DEFINE(chan_ble_link, struct msg_ble_link, NULL, NULL, ZBUS_OBSERVERS_
  * show as button lag, zbus_async_listener_set_work_queue() moves it off the
  * system work queue.
  */
-OZM(ZBUS_ASYNC_LISTENER_DEFINE, alis_ble_keys,
-    ^(const struct zbus_channel *chan, const void *message) {
+ZBUS_ASYNC_LISTENER_DEFINE(alis_ble_keys,
+    OZFN(^(const struct zbus_channel *chan, const void *message) {
 	const struct msg_keys *keys = message;
 	[[PXBLEController sharedInstance] handleLongMask:keys->long_mask];
-});
-
-ZBUS_OBS_DECLARE(alis_ble_keys)
+}));
 
 ZBUS_CHAN_ADD_OBS(chan_keys, alis_ble_keys, 3);
 

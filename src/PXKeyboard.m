@@ -26,6 +26,17 @@ ZBUS_CHAN_DEFINE(chan_keys, struct msg_keys, NULL, NULL, ZBUS_OBSERVERS_EMPTY,
  * must reach its object the way every hoisted block does -- through the
  * singleton, never through a capture. OZM carries the block into the macro;
  * see include/oz_sdk/Foundation/OZMacro.h.
+ *
+ * **The one OZM left in this app**, and it has to be. Everything else uses
+ * OZFN, which is preferred because it leaves the enclosing macro visible to
+ * Clang -- but OZFN is wrong here. INPUT_CALLBACK_DEFINE token-pastes its
+ * callback into the object's name (`_input_callback__##name`, with `name`
+ * defaulting to the callback), and OZFN's argument expands to `0` before
+ * the paste. One would work; a second in this file would also become
+ * `_input_callback__0` and Clang would reject the redefinition -- on the
+ * AST-dump path, where a truncated dump silently costs ivar ownership
+ * facts. Zephyr's INPUT_CALLBACK_DEFINE_NAMED is the way out if a second
+ * one is ever needed here.
  */
 OZM(INPUT_CALLBACK_DEFINE, NULL, ^(struct input_event *evt, void *user_data) {
 	ARG_UNUSED(user_data);

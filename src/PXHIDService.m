@@ -177,13 +177,11 @@ BT_GATT_SERVICE_DEFINE(hid_kbd_svc,
  * pool, and this keeps that off the input-subsystem callback's thread. The
  * async listener's FIFO preserves order, which HID reports need.
  */
-OZM(ZBUS_ASYNC_LISTENER_DEFINE, alis_hid_report,
-    ^(const struct zbus_channel *chan, const void *message) {
+ZBUS_ASYNC_LISTENER_DEFINE(alis_hid_report,
+    OZFN(^(const struct zbus_channel *chan, const void *message) {
 	const struct msg_keys *keys = message;
 	[[PXHIDService sharedInstance] sendReportForMask:keys->mask];
-});
-
-ZBUS_OBS_DECLARE(alis_hid_report)
+}));
 
 ZBUS_CHAN_ADD_OBS(chan_keys, alis_hid_report, 2);
 

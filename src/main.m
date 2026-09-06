@@ -41,24 +41,22 @@
  * the rule costs a work-queue hop on a debug log and removes the whole
  * class of fault instead of re-deciding it per listener.
  */
-OZM(ZBUS_ASYNC_LISTENER_DEFINE, alis_keys_debug,
-    ^(const struct zbus_channel *chan, const void *message) {
+ZBUS_ASYNC_LISTENER_DEFINE(alis_keys_debug,
+    OZFN(^(const struct zbus_channel *chan, const void *message) {
 	const struct msg_keys *keys = message;
 
 	OZLog("keys: mask=0x%02x long=0x%02x", keys->mask, keys->long_mask);
-});
-
-ZBUS_OBS_DECLARE(alis_keys_debug)
+}));
 
 ZBUS_CHAN_ADD_OBS(chan_keys, alis_keys_debug, 4);
 
 /*
  * Every singleton overrides -cDescription:maxLength:, so dumping the whole
- * app is four %@ conversions. SHELL_CMD_REGISTER takes a raw handler
- * pointer, hence OZM.
+ * app is four %@ conversions. SHELL_CMD_REGISTER wants a raw handler
+ * pointer, so the block needs OZFN.
  */
-OZM(SHELL_CMD_REGISTER, px_info, NULL, "Dump PX keyboard state",
-    ^(const struct shell *sh, size_t argc, char **argv) {
+SHELL_CMD_REGISTER(px_info, NULL, "Dump PX keyboard state",
+    OZFN(^(const struct shell *sh, size_t argc, char **argv) {
 	ARG_UNUSED(sh);
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
@@ -69,7 +67,7 @@ OZM(SHELL_CMD_REGISTER, px_info, NULL, "Dump PX keyboard state",
 	OZLog("%@", [PXLEDController sharedInstance]);
 
 	return 0;
-});
+}));
 
 int main(void)
 {

@@ -92,8 +92,8 @@ K_TIMER_DEFINE(sIndicatorTimer, OZFN(^(struct k_timer *timer) {
  * listener is the publisher's *stack*, not just its latency. An indicator
  * has no deadline, so the work queue hop costs nothing that matters.
  */
-OZM(ZBUS_ASYNC_LISTENER_DEFINE, alis_led_status,
-    ^(const struct zbus_channel *chan, const void *message) {
+ZBUS_ASYNC_LISTENER_DEFINE(alis_led_status,
+    OZFN(^(const struct zbus_channel *chan, const void *message) {
 	const struct msg_ble_link *link = message;
 	enum px_led_status status = PX_LED_STATUS_OFF;
 
@@ -110,9 +110,7 @@ OZM(ZBUS_ASYNC_LISTENER_DEFINE, alis_led_status,
 	}
 
 	[[PXLEDController sharedInstance] setLEDStatus:status];
-});
-
-ZBUS_OBS_DECLARE(alis_led_status)
+}));
 
 ZBUS_CHAN_ADD_OBS(chan_ble_link, alis_led_status, 3);
 
