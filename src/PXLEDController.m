@@ -43,12 +43,18 @@ static const struct pwm_dt_spec kPwmLed0Spec = PWM_DT_SPEC_GET(DT_ALIAS(pwm_led0
  * user-data slot, and its animation state through these file-scope
  * variables -- a block that captures is rejected by the static bar, and
  * file scope is the same channel Zephyr's own C callbacks use.
+ *
+ * OZFN rather than OZM (objective-z #300): OZM hid the whole invocation
+ * from Clang, so `sIndicatorTimer` needed a hand-written
+ * `#ifdef __OBJC__ static struct k_timer sIndicatorTimer; #endif` for the
+ * `k_timer_stop`/`k_timer_start` below. OZFN hides only the block, so
+ * K_TIMER_DEFINE expands on both sides and declares it on both.
  */
 static volatile BOOL sBreathes;
 static volatile int sBreathLevel;
 static volatile int sBreathDelta;
 
-OZM(K_TIMER_DEFINE, sIndicatorTimer, ^(struct k_timer *timer) {
+K_TIMER_DEFINE(sIndicatorTimer, OZFN(^(struct k_timer *timer) {
 	id<PXToggleable> indicator = (__bridge id<PXToggleable>)k_timer_user_data_get(timer);
 
 	if (!sBreathes) {
@@ -69,12 +75,7 @@ OZM(K_TIMER_DEFINE, sIndicatorTimer, ^(struct k_timer *timer) {
 	sBreathLevel = level;
 
 	[(id<PXDimmable>)indicator setLevel:(uint8_t)level];
-}, NULL);
-
-#ifdef __OBJC__
-/* Discarded above on this side; the generated C gets the real definition. */
-static struct k_timer sIndicatorTimer;
-#endif
+}), NULL);
 
 /*
  * The only place BLE state becomes indicator state.

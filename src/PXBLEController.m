@@ -59,78 +59,84 @@ static const struct bt_data sd[] = {
 
 /* ---- Connection callbacks ---- */
 
-static void connected(struct bt_conn *conn, uint8_t err)
-{
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
-	if (err) {
-		printk("Failed to connect to %s (err 0x%02x)\n", addr, err);
-		return;
-	}
-
-	printk("Connected: %s\n", addr);
-
-	if (sCurrentConn) {
-		bt_conn_unref(sCurrentConn);
-	}
-	sCurrentConn = bt_conn_ref(conn);
-
-	if (bt_conn_set_security(conn, BT_SECURITY_L2)) {
-		printk("Failed to set security\n");
-	}
-
-	[[PXBLEController sharedInstance] onConnected];
-}
-
-static void disconnected(struct bt_conn *conn, uint8_t reason)
-{
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-	printk("Disconnected: %s (reason 0x%02x)\n", addr, reason);
-
-	if (sCurrentConn) {
-		bt_conn_unref(sCurrentConn);
-		sCurrentConn = NULL;
-	}
-
-	[[PXBLEController sharedInstance] onDisconnected];
-}
-
 /*
- * Advertising restarts here rather than in `disconnected`. There, the
- * connection object still exists and `bt_le_adv_start` returns -ENOMEM --
- * observed on hardware as "Advertising failed to start (err -12)", after
- * which the device was invisible until reset. Zephyr's own
- * `bt_conn_cb.disconnected` documentation points at this callback for the
- * purpose.
+ * Written as blocks in the initializer itself, via OZFN (objective-z
+ * #300). These are registered once and called from nowhere else, so a
+ * named function bought only a second place to look; the body now sits at
+ * the field that registers it.
+ *
+ * OZM cannot reach these: BT_CONN_CB_DEFINE takes only the *name*, and the
+ * callbacks are in a designated initializer after the `=` -- not macro
+ * arguments. OZFN hides one expression, so it can.
+ *
+ * Each block captures nothing. `sCurrentConn` is file scope, which the
+ * static bar permits and does not count as a capture, and the controller
+ * is reached through +sharedInstance the way every hoisted block reaches
+ * its object.
  */
-static void recycled(void)
-{
-	[[PXBLEController sharedInstance] onConnectionRecycled];
-}
-
-static void security_changed(struct bt_conn *conn, bt_security_t level,
-			     enum bt_security_err err)
-{
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
-	if (!err) {
-		printk("Security changed: %s level %u\n", addr, level);
-	} else {
-		printk("Security failed: %s level %u err %d\n", addr, level, err);
-	}
-}
-
 BT_CONN_CB_DEFINE(conn_callbacks) = {
-	.connected = connected,
-	.disconnected = disconnected,
-	.recycled = recycled,
-	.security_changed = security_changed,
+	.connected = OZFN(^(struct bt_conn *conn, uint8_t err) {
+		char addr[BT_ADDR_LE_STR_LEN];
+
+		bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+		if (err) {
+			printk("Failed to connect to %s (err 0x%02x)\n", addr, err);
+			return;
+		}
+
+		printk("Connected: %s\n", addr);
+
+		if (sCurrentConn) {
+			bt_conn_unref(sCurrentConn);
+		}
+		sCurrentConn = bt_conn_ref(conn);
+
+		if (bt_conn_set_security(conn, BT_SECURITY_L2)) {
+			printk("Failed to set security\n");
+		}
+
+		[[PXBLEController sharedInstance] onConnected];
+	}),
+
+	.disconnected = OZFN(^(struct bt_conn *conn, uint8_t reason) {
+		char addr[BT_ADDR_LE_STR_LEN];
+
+		bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+		printk("Disconnected: %s (reason 0x%02x)\n", addr, reason);
+
+		if (sCurrentConn) {
+			bt_conn_unref(sCurrentConn);
+			sCurrentConn = NULL;
+		}
+
+		[[PXBLEController sharedInstance] onDisconnected];
+	}),
+
+	/*
+	 * Advertising restarts here rather than in `.disconnected`. There the
+	 * connection object still exists and `bt_le_adv_start` returns
+	 * -ENOMEM -- observed on hardware as "Advertising failed to start
+	 * (err -12)", after which the device was invisible until reset.
+	 * Zephyr's own `bt_conn_cb.disconnected` documentation points at this
+	 * callback for the purpose.
+	 */
+	.recycled = OZFN(^(void) {
+		[[PXBLEController sharedInstance] onConnectionRecycled];
+	}),
+
+	.security_changed = OZFN(^(struct bt_conn *conn, bt_security_t level,
+				   enum bt_security_err err) {
+		char addr[BT_ADDR_LE_STR_LEN];
+
+		bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+		if (!err) {
+			printk("Security changed: %s level %u\n", addr, level);
+		} else {
+			printk("Security failed: %s level %u err %d\n", addr, level, err);
+		}
+	}),
 };
 
 /* ---- Pairing ---- */
