@@ -3,3 +3,13 @@ __pycache__/
 *.pyc
 .venv/
 .cache/
+
+# Editor and local tooling. .clangd and compile_commands.json are regenerated
+# by the Objective-Z module on every CMake configure; .gdbinit and .zed/ carry
+# absolute paths, so they stay local.
+.DS_Store
+.clangd
+compile_commands.json
+.gdbinit
+.zed
+.claude/
