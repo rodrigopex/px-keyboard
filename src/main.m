@@ -19,6 +19,7 @@
 #import "PXKeyboard.h"
 #import "PXLEDController.h"
 
+#include <zephyr/app_version.h>
 #include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
 
@@ -71,7 +72,12 @@ SHELL_CMD_REGISTER(px_info, NULL, "Dump PX keyboard state",
 
 int main(void)
 {
-	OZLog("=== PX Keyboard ===");
+	/* The version on the banner, so a console log identifies the build
+	 * that produced it. Nine flashes into this app there was no way to
+	 * tell which one was on the board. From the VERSION file via
+	 * Zephyr's app-version machinery, so `west build` is the only
+	 * place it is written down. */
+	OZLog("=== PX Keyboard v%s ===", APP_VERSION_STRING);
 
 	[[PXBLEController sharedInstance] start];
 
