@@ -302,30 +302,24 @@ static struct bt_conn_auth_cb auth_cb = {
 	}),
 };
 
-/*
- * Pairing outcome. Without these, a rejected pairing shows only as
- * `security_changed` reporting a level and an error code, which says that
- * it failed but not what the peer objected to.
- */
-static void pairing_complete(struct bt_conn *conn, bool bonded)
-{
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-	printk("Pairing complete: %s (bonded %d)\n", addr, bonded);
-}
-
-static void pairing_failed(struct bt_conn *conn, enum bt_security_err reason)
-{
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-	printk("Pairing failed: %s (reason %d)\n", addr, reason);
-}
-
 static struct bt_conn_auth_info_cb auth_info_cb = {
-	.pairing_complete = pairing_complete,
-	.pairing_failed = pairing_failed,
+	.pairing_complete = OZFN(^(struct bt_conn *conn, bool bonded) {
+	  char addr[BT_ADDR_LE_STR_LEN];
+
+	  bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+	  printk("Pairing complete: %s (bonded %d)\n", addr, bonded);
+	}),
+	/*
+	 * Pairing outcome. Without these, a rejected pairing shows only as
+	 * `security_changed` reporting a level and an error code, which says that
+	 * it failed but not what the peer objected to.
+	 */
+	.pairing_failed = OZFN(^(struct bt_conn *conn, enum bt_security_err reason) {
+	  char addr[BT_ADDR_LE_STR_LEN];
+
+	  bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+	  printk("Pairing failed: %s (reason %d)\n", addr, reason);
+	}),
 };
 
 /* ---- BT ready ---- */
@@ -374,7 +368,7 @@ static PXBLEController *sSharedController;
 	return sSharedController;
 }
 
-- (id)init
+- (instancetype)init
 {
 	self = [super init];
 	if (self) {
