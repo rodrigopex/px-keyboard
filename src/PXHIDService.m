@@ -42,8 +42,15 @@ struct hids_info {
 	uint8_t flags;
 } __packed;
 
+/*
+ * The report reference the HID spec calls (ID, Type). Spelled `report_id`
+ * rather than `id`, which oz_static reserves as the name of Objective-C's
+ * object pointer type (objective-z #317) -- the struct is private to this
+ * file and only the initializer below names the field, so the spelling costs
+ * nothing here.
+ */
 struct hids_report {
-	uint8_t id;
+	uint8_t report_id;
 	uint8_t type;
 } __packed;
 
@@ -54,7 +61,7 @@ static struct hids_info sInfo = {
 };
 
 static struct hids_report sInputRef = {
-	.id = 0x01,
+	.report_id = 0x01,
 	.type = HIDS_INPUT,
 };
 
