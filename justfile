@@ -6,7 +6,6 @@ alias rb := rebuild
 
 board := "nrf52833dk/nrf52833"
 build_dir := "build"
-flags := ""
 
 # px-keyboard is not a west project, so nothing puts it in the manifest and
 # nothing sets its environment up. It sits *inside* the workspace, though, so
@@ -34,16 +33,20 @@ tty := "/dev/tty.usbmodem0006850372581"
 default:
     @just --list
 
+# Extra cmake flags are positional and variadic, so a Kconfig fragment can be
+# tried without editing anything here: `just build -DCONFIG_SHELL=y
+# -DCONFIG_LOG=n`. `run` forwards them to its build too.
+
 # Use `rebuild` after touching prj.conf, the overlay, CMakeLists or the
 # transpiler -- cmake re-runs on those, but a stale build/ has burned enough
 # time here to be worth the explicit recipe.
 
 # Incremental build.
-build flags=flags:
+build *flags:
     west build -b {{ board }} -d {{ build_dir }} . -- {{ flags }}
 
 # Pristine build.
-rebuild flags=flags: clean
+rebuild *flags: clean
     west build -b {{ board }} -d {{ build_dir }} . -- {{ flags }}
 
 # `rm -rf`, not `rip`: rip moves the bytes to /tmp/graveyard-$USER, which frees
@@ -62,4 +65,4 @@ monitor:
     tio {{ tty }}
 
 # Build, flash and monitor -- the loop hardware work runs in.
-run: build flash monitor
+run *flags: (build flags) flash monitor
