@@ -78,7 +78,19 @@ ZBUS_CHAN_DECLARE(chan_ble_link); /* Type: struct msg_ble_link */
 /** @brief sw2 — push a battery level to the host. */
 - (void)reportBatteryLevel;
 
-/** @brief sw3 — forget every bond and go back to advertising. */
+/**
+ * @brief sw3 — forget every bond, take a new address, and re-advertise.
+ *
+ * Clearing our own keys is not enough on its own: BLE has no way to tell a
+ * host to release its side, and a host holding a bond whose key we deleted
+ * refuses the next connection instead of pairing again. So this resets the
+ * whole identity, address included, and the keyboard comes back as a device
+ * the host has never met — pairable immediately, with no visit to the host's
+ * Bluetooth settings.
+ *
+ * The host's old entry does stay in its device list, dead. Nothing a
+ * peripheral can send will remove it.
+ */
 - (void)forgetBond;
 
 @end

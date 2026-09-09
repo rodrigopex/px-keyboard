@@ -74,6 +74,31 @@ static const struct bt_data sd[] = {
 	BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME) - 1),
 };
 
+/**
+ * @brief Advertising parameters, spelled out so the identity can be chosen.
+ *
+ * The values are BT_LE_ADV_CONN_FAST_1's, and that macro is what this would
+ * otherwise be -- but BT_LE_ADV_PARAM_INIT pins `.id = BT_ID_DEFAULT`
+ * (bluetooth.h:1100), and advertising on the default identity is precisely
+ * what -forgetBond cannot work with: bt_id_reset() refuses BT_ID_DEFAULT.
+ *
+ * So this is not const, and `.id` is resolved once in bt_ready() -- to
+ * identity 1 where the stack gave us one, and left at BT_ID_DEFAULT where it
+ * did not.
+ */
+static struct bt_le_adv_param sAdvParam = {
+	.id = BT_ID_DEFAULT,
+	.sid = 0,
+	.secondary_max_skip = 0,
+	.options = BT_LE_ADV_OPT_CONN,
+	.interval_min = BT_GAP_ADV_FAST_INT_MIN_1,
+	.interval_max = BT_GAP_ADV_FAST_INT_MAX_1,
+	.peer = NULL,
+};
+
+/** @brief The identity -forgetBond rotates, and the only one we ever bond on. */
+#define PX_BT_IDENTITY 1
+
 /* ---- Connection callbacks ---- */
 
 /*
@@ -150,8 +175,31 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 
 	  if (!err) {
 		  printk("Security changed: %s level %u\n", addr, level);
-	  } else {
-		  printk("Security failed: %s level %u err %d\n", addr, level, err);
+		  return;
+	  }
+
+	  printk("Security failed: %s level %u err %d\n", addr, level, err);
+
+	  /*
+	   * The mirror of -forgetBond: the *host* dropped its bond, ours is
+	   * still here, and so encryption cannot be established with a key
+	   * only one side holds. Nothing in the stack cleans this up -- the
+	   * host keeps the connection, unencrypted, and keeps its keys
+	   * (hci_core.c:2243-2262), so the link is useless until someone
+	   * deletes something. Dropping our side is what lets the host pair
+	   * again on its next attempt.
+	   *
+	   * The idiom, and the reason this is safe to call from here, is
+	   * Zephyr's own: samples/bluetooth/cap_initiator does the same in
+	   * its security_changed, and smp.c:1948-1957 guards the reentrancy.
+	   */
+	  if (err == BT_SECURITY_ERR_PIN_OR_KEY_MISSING) {
+		  printk("Peer lost its bond; dropping ours\n");
+
+		  int unpair_err = bt_unpair(sAdvParam.id, bt_conn_get_dst(conn));
+		  if (unpair_err) {
+			  printk("bt_unpair failed (err %d)\n", unpair_err);
+		  }
 	  }
 	}),
 };
@@ -194,15 +242,29 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
  */
 #define PX_PASSKEY_BLINK_MS 250
 
+/**
+ * @brief Bond-erase confirmation: a burst on the same led1.
+ *
+ * Eight blinks, and deliberately three times faster than the passkey's 250.
+ * Both bursts share one LED, so the period is what tells them apart -- a
+ * count alone would not, given the passkey can itself be eight.
+ */
+#define PX_ERASE_BLINKS   8
+#define PX_ERASE_BLINK_MS 80
+
 static const struct gpio_dt_spec kLed1Spec = GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios);
 
 /*
  * File scope rather than captured: a hoisted block takes no captures, and
  * the static bar does not count a file-scope variable as one. Same channel
  * PXLEDController's own timer block uses.
+ *
+ * Named for the burst rather than the passkey now that two callers arm it:
+ * `.passkey_display` counts out the passkey, and `.bond_deleted` confirms an
+ * erase.
  */
-static GPIOOutput *sPasskeyLed;
-static volatile int sTogglesLeft;
+static GPIOOutput *sBurstLed;
+static volatile int sBurstTogglesLeft;
 
 /*
  * Blinking cannot happen in the callback that wants it. `.passkey_display`
@@ -211,19 +273,38 @@ static volatile int sTogglesLeft;
  * stack that already overflowed once. So the callback only arms this, and
  * the timer does the work.
  */
-K_TIMER_DEFINE(sPasskeyTimer, OZFN(^(struct k_timer *timer) {
+K_TIMER_DEFINE(sBurstTimer, OZFN(^(struct k_timer *timer) {
 		 ARG_UNUSED(timer);
 
-		 if (sTogglesLeft <= 0) {
-			 k_timer_stop(&sPasskeyTimer);
-			 [sPasskeyLed setActive:NO];
+		 if (sBurstTogglesLeft <= 0) {
+			 k_timer_stop(&sBurstTimer);
+			 [sBurstLed setActive:NO];
 			 return;
 		 }
 
-		 [sPasskeyLed toggle];
-		 sTogglesLeft = sTogglesLeft - 1;
+		 [sBurstLed toggle];
+		 sBurstTogglesLeft = sBurstTogglesLeft - 1;
 	       }),
 	       NULL);
+
+/**
+ * @brief Arm the burst: @p blinks on/off pairs at @p periodMs each half.
+ *
+ * Restarts rather than queues, so the newest burst wins. That is the right
+ * rule for the two callers: an erase during pairing has just invalidated the
+ * passkey being counted out, so replacing it mid-count is the honest signal.
+ */
+static void px_blink_burst(unsigned int blinks, int periodMs)
+{
+	if (sBurstLed == nil) {
+		return;
+	}
+
+	k_timer_stop(&sBurstTimer);
+	[sBurstLed setActive:NO];
+	sBurstTogglesLeft = (int)(blinks * 2U);
+	k_timer_start(&sBurstTimer, K_MSEC(periodMs), K_MSEC(periodMs));
+}
 
 /**
  * @brief The pairing passkey, generated per pairing.
@@ -285,13 +366,7 @@ static struct bt_conn_auth_cb auth_cb = {
 	  printk("Pairing passkey for %s: %06u (%u blink(s) on led1)\n", addr, passkey, passkey);
 
 	  /* Arm and return: the timer blinks, this thread does not. */
-	  if (sPasskeyLed != nil) {
-		  k_timer_stop(&sPasskeyTimer);
-		  [sPasskeyLed setActive:NO];
-		  sTogglesLeft = (int)(passkey * 2U);
-		  k_timer_start(&sPasskeyTimer, K_MSEC(PX_PASSKEY_BLINK_MS),
-				K_MSEC(PX_PASSKEY_BLINK_MS));
-	  }
+	  px_blink_burst(passkey, PX_PASSKEY_BLINK_MS);
 	}),
 
 	.cancel = OZFN(^(struct bt_conn *conn) {
@@ -320,9 +395,92 @@ static struct bt_conn_auth_info_cb auth_info_cb = {
 	  bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 	  printk("Pairing failed: %s (reason %d)\n", addr, reason);
 	}),
+	/*
+	 * Fired by the stack from inside unpair() (hci_core.c:2155-2164), so it
+	 * covers every route a bond can go: the sw3 gesture, the
+	 * PIN-or-Key-Missing cleanup in `.security_changed`, and key-pool
+	 * eviction. Confirming the erase here rather than at the gesture means
+	 * the burst reports what actually happened.
+	 *
+	 * It is also why this callback is registered *after* bt_ready()'s
+	 * one-time identity-0 cleanup: that cleanup would otherwise blink an
+	 * erase on every boot.
+	 */
+	.bond_deleted = OZFN(^(uint8_t identity, const bt_addr_le_t *peer) {
+	  char addr[BT_ADDR_LE_STR_LEN];
+
+	  bt_addr_le_to_str(peer, addr, sizeof(addr));
+	  printk("Bond deleted: %s (id %u)\n", addr, identity);
+
+	  px_blink_burst(PX_ERASE_BLINKS, PX_ERASE_BLINK_MS);
+	}),
 };
 
 /* ---- BT ready ---- */
+
+/**
+ * @brief Point advertising at identity PX_BT_IDENTITY, creating it if needed.
+ *
+ * Two things, both once per boot.
+ *
+ * First, drop any bond on identity 0. Nothing bonds there any more, but a
+ * build from before this identity existed did, and that bond would sit in NVS
+ * holding one of the two CONFIG_BT_MAX_PAIRED slots for a peer we will never
+ * talk to again. Costs nothing when there is none: bt_unpair iterates the
+ * bonds it finds, so with none it writes no flash.
+ *
+ * Second, make sure identity 1 exists. bt_id_create() with a NULL address is
+ * the one case the stack persists for us (bluetooth.h:438-460) -- it needs
+ * bt_enable() and settings_load() to have run first, which is why this is
+ * here and not in -init -- so the address survives a reboot, and step 5 of
+ * the verification checks exactly that.
+ *
+ * On failure this leaves sAdvParam.id at BT_ID_DEFAULT. The keyboard then
+ * behaves as it did before identity rotation existed: it still pairs, and
+ * -forgetBond still clears our keys, but a host will need "Forget This
+ * Device" before it can pair again. Degrading beats not advertising.
+ */
+static void resolve_identity(void)
+{
+	bt_addr_le_t addrs[CONFIG_BT_ID_MAX];
+	size_t count = ARRAY_SIZE(addrs);
+	char addr_str[BT_ADDR_LE_STR_LEN];
+
+	int err = bt_unpair(BT_ID_DEFAULT, NULL);
+	if (err) {
+		printk("Clearing legacy id-0 bonds failed (err %d)\n", err);
+	}
+
+	bt_id_get(addrs, &count);
+
+	if (count <= PX_BT_IDENTITY) {
+		err = bt_id_create(NULL, NULL);
+		if (err < 0) {
+			printk("bt_id_create failed (err %d), staying on id 0\n", err);
+			return;
+		}
+
+		count = ARRAY_SIZE(addrs);
+		bt_id_get(addrs, &count);
+	}
+
+	/*
+	 * Re-checked rather than assumed. bt_id_get reports how many
+	 * identities it actually copied, and pointing the advertisement at a
+	 * slot the stack does not have would fail bt_le_adv_start with
+	 * -EINVAL -- leaving the keyboard silent, which is worse than leaving
+	 * it on identity 0.
+	 */
+	if (count <= PX_BT_IDENTITY) {
+		printk("Identity %u missing, staying on id 0\n", PX_BT_IDENTITY);
+		return;
+	}
+
+	sAdvParam.id = PX_BT_IDENTITY;
+
+	bt_addr_le_to_str(&addrs[PX_BT_IDENTITY], addr_str, sizeof(addr_str));
+	printk("Identity %u: %s\n", PX_BT_IDENTITY, addr_str);
+}
 
 static void bt_ready(int err)
 {
@@ -336,6 +494,14 @@ static void bt_ready(int err)
 	if (IS_ENABLED(CONFIG_SETTINGS)) {
 		settings_load();
 	}
+
+	/*
+	 * Everything below has to happen after settings_load() -- it is what
+	 * restores the identity created on an earlier boot -- and before
+	 * bt_conn_auth_info_cb_register(), so that the cleanup's `bond_deleted`
+	 * does not blink an erase burst on every boot.
+	 */
+	resolve_identity();
 
 	bt_conn_auth_cb_register(&auth_cb);
 	bt_conn_auth_info_cb_register(&auth_info_cb);
@@ -376,7 +542,7 @@ static PXBLEController *sSharedController;
 		_advertising = NO;
 
 		if (kLed1Spec.port) {
-			sPasskeyLed = [[GPIOOutput alloc] initWithDTSpec:&kLed1Spec flags:0];
+			sBurstLed = [[GPIOOutput alloc] initWithDTSpec:&kLed1Spec flags:0];
 		}
 
 		_gestures[PX_KEY_P] = @selector(toggleAdvertising);
@@ -451,7 +617,7 @@ static PXBLEController *sSharedController;
 
 - (int)startAdvertising
 {
-	int err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
+	int err = bt_le_adv_start(&sAdvParam, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
 
 	if (err && err != -EALREADY) {
 		printk("Advertising failed to start (err %d)\n", err);
@@ -540,26 +706,64 @@ static PXBLEController *sSharedController;
 
 - (void)forgetBond
 {
-	printk("Unpair all devices\n");
+	printk("Forget bonds\n");
 
 	/*
-	 * bt_unpair() disconnects the peer itself -- unpair() in
-	 * deps/zephyr/subsys/bluetooth/host/hci_core.c looks the connection
-	 * up and calls bt_conn_disconnect() before clearing the keys. So
-	 * there is nothing to wait for here: the disconnected callback
-	 * re-advertises, and if there was no link the branch below does.
+	 * Advertising has to stop first, and not as tidiness: bt_id_reset()
+	 * returns -EBUSY while any advertising set is enabled on the identity
+	 * it is asked to reset (id.c:1441-1451).
 	 */
-	int err = bt_unpair(BT_ID_DEFAULT, BT_ADDR_LE_ANY);
-	if (err) {
-		printk("bt_unpair failed (err %d)\n", err);
-		return;
+	if (_advertising) {
+		[self stopAdvertising];
+	}
+
+	int err;
+
+	if (sAdvParam.id == BT_ID_DEFAULT) {
+		/*
+		 * No second identity, so the keys are all that can go. The
+		 * host keeps its bond and will need "Forget This Device"
+		 * before it can pair again -- see resolve_identity().
+		 */
+		err = bt_unpair(BT_ID_DEFAULT, NULL);
+		if (err) {
+			printk("bt_unpair failed (err %d)\n", err);
+		}
+	} else {
+		/*
+		 * The whole gesture in one call: bt_id_reset() unpairs the
+		 * identity, which disconnects the peer on the way, and then
+		 * generates a fresh random static address for it
+		 * (id.c:1453-1461).
+		 *
+		 * The new address is the point. Deleting our keys alone leaves
+		 * the host holding a bond it cannot use, and neither macOS nor
+		 * the Bluetooth spec has a way for us to ask it to let go --
+		 * the next encryption attempt just fails with
+		 * PIN-or-Key-Missing. Coming back on a different address
+		 * sidesteps that: the host has never seen this device, so it
+		 * pairs normally. Its old entry stays in the list, dead, and
+		 * nothing on air can remove it.
+		 */
+		err = bt_id_reset(sAdvParam.id, NULL, NULL);
+		if (err < 0) {
+			printk("bt_id_reset failed (err %d)\n", err);
+		} else {
+			bt_addr_le_t addrs[CONFIG_BT_ID_MAX];
+			size_t count = ARRAY_SIZE(addrs);
+			char addr_str[BT_ADDR_LE_STR_LEN];
+
+			bt_id_get(addrs, &count);
+			bt_addr_le_to_str(&addrs[sAdvParam.id], addr_str, sizeof(addr_str));
+			printk("Identity %u is now %s\n", sAdvParam.id, addr_str);
+		}
 	}
 
 	/*
-	 * Only when there was no link to drop. Where there was, `bt_unpair`
-	 * disconnected it, and advertising restarts from `recycled` once the
-	 * connection object is actually free -- starting it here would hit
-	 * the same -ENOMEM.
+	 * Only when there was no link to drop. Where there was, the unpair
+	 * inside either branch disconnected it, and advertising restarts from
+	 * `recycled` once the connection object is actually free -- starting
+	 * it here would hit the same -ENOMEM.
 	 */
 	if (!sCurrentConn) {
 		[self startAdvertising];
@@ -569,9 +773,24 @@ static PXBLEController *sSharedController;
 - (int)cDescription:(char *)buf maxLength:(size_t)maxLen
 {
 	static const char *const kStateNames[] = {"idle", "advertising", "connected"};
+	unsigned int bonds = 0;
 
-	return snprintk(buf, maxLen, "<PXBLEController: %s, linked=%d, long=0x%02x>",
-			kStateNames[[self state]], sCurrentConn != NULL, _lastLongMask);
+	bt_foreach_bond(sAdvParam.id, OZFN(^(const struct bt_bond_info *info, void *user_data) {
+			  ARG_UNUSED(info);
+			  unsigned int *bonds_count = user_data;
+			  *bonds_count = *bonds_count + 1U;
+			}),
+			&bonds);
+
+	/*
+	 * The identity address is deliberately not here. It is 30 more
+	 * characters into a buffer this has to share, and it is already
+	 * printed at boot and on every reset, which is where it matters.
+	 */
+	return snprintk(buf, maxLen,
+			"<PXBLEController: %s, linked=%d, long=0x%02x, id=%u, bonds=%u>",
+			kStateNames[[self state]], sCurrentConn != NULL, _lastLongMask,
+			sAdvParam.id, bonds);
 }
 
 @end
