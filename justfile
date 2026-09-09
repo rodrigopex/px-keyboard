@@ -39,12 +39,12 @@ default:
 # time here to be worth the explicit recipe.
 
 # Incremental build.
-build:
+build flags=flags:
     west build -b {{ board }} -d {{ build_dir }} . -- {{ flags }}
 
 # Pristine build.
-rebuild:
-    west build -b {{ board }} -p always -d {{ build_dir }} . -- {{ flags }}
+rebuild flags=flags: clean
+    west build -b {{ board }} -d {{ build_dir }} . -- {{ flags }}
 
 # `rm -rf`, not `rip`: rip moves the bytes to /tmp/graveyard-$USER, which frees
 # no space, and a Zephyr build directory is most of a gigabyte.
