@@ -38,10 +38,16 @@ static const struct pwm_dt_spec kPwmLed0Spec = PWM_DT_SPEC_GET(DT_ALIAS(pwm_led0
 #define PX_BREATH_MAX 255
 
 /*
- * The hoisted timer block reaches the indicator through the timer's own
- * user-data slot, and its animation state through these file-scope
- * variables -- a block that captures is rejected by the static bar, and
- * file scope is the same channel Zephyr's own C callbacks use.
+ * The hoisted timer block reaches the controller through the timer's own
+ * user-data slot and does nothing else -- a block that captures is rejected
+ * by the static bar, and user data is the same channel Zephyr's own C
+ * callbacks use.
+ *
+ * The controller rather than the indicator, for two reasons. It keeps the
+ * animation state in ivars instead of file-scope volatiles, and it gives
+ * the send a concrete declared type: the static subset resolves a receiver
+ * from its declaration, so a bare `id` here leaves it with the `void *`
+ * that `k_timer_user_data_get` returns and no way to find the selector.
  *
  * OZFN rather than OZM (objective-z #300): OZM hid the whole invocation
  * from Clang, so `sIndicatorTimer` needed a hand-written
@@ -49,32 +55,11 @@ static const struct pwm_dt_spec kPwmLed0Spec = PWM_DT_SPEC_GET(DT_ALIAS(pwm_led0
  * `k_timer_stop`/`k_timer_start` below. OZFN hides only the block, so
  * K_TIMER_DEFINE expands on both sides and declares it on both.
  */
-static volatile BOOL sBreathes;
-static volatile int sBreathLevel;
-static volatile int sBreathDelta;
 
 K_TIMER_DEFINE(sIndicatorTimer, OZFN(^(struct k_timer *timer) {
-		 id<PXToggleable> indicator =
-			 (__bridge id<PXToggleable>)k_timer_user_data_get(timer);
-
-		 if (!sBreathes) {
-			 [indicator toggle];
-			 return;
-		 }
-
-		 int level = sBreathLevel + sBreathDelta;
-
-		 if (level >= PX_BREATH_MAX) {
-			 level = PX_BREATH_MAX;
-			 sBreathDelta = -PX_BREATH_STEP;
-		 } else if (level <= 0) {
-			 level = 0;
-			 sBreathDelta = PX_BREATH_STEP;
-		 }
-
-		 sBreathLevel = level;
-
-		 [(id<PXDimmable>)indicator setLevel:(uint8_t)level];
+		 PXLEDController *controller =
+			 (__bridge PXLEDController *)k_timer_user_data_get(timer);
+		 [controller indicate];
 	       }),
 	       NULL);
 
@@ -121,6 +106,8 @@ static PXLEDController *sSharedLEDController;
 	id<PXToggleable> _indicator;
 	BOOL _dimmable;
 	int _status;
+	uint8_t _breathLevel;
+	int8_t _breathDelta;
 }
 
 + (void)initialize
@@ -137,6 +124,10 @@ static PXLEDController *sSharedLEDController;
 {
 	self = [super init];
 	if (self) {
+
+		_breathLevel = 0;
+		_breathDelta = PX_BREATH_STEP;
+
 		_indicator = [[PWMOutput alloc] initWithDTSpec:&kPwmLed0Spec];
 
 		if (_indicator == nil && kLed0Spec.port) {
@@ -149,7 +140,7 @@ static PXLEDController *sSharedLEDController;
 		 */
 		_dimmable = [_indicator conformsToProtocol:@protocol(PXDimmable)];
 
-		k_timer_user_data_set(&sIndicatorTimer, (__bridge void *)_indicator);
+		k_timer_user_data_set(&sIndicatorTimer, (__bridge void *)self);
 
 		_status = PX_LED_STATUS_OFF;
 		OZLog("PXLEDController: initialized (%@)", _indicator);
@@ -178,9 +169,8 @@ static PXLEDController *sSharedLEDController;
 
 	case PX_LED_STATUS_BLINK:
 		[_indicator setActive:NO];
-		sBreathes = _dimmable;
-		sBreathLevel = 0;
-		sBreathDelta = PX_BREATH_STEP;
+		_breathLevel = 0;
+		_breathDelta = PX_BREATH_STEP;
 
 		if (_dimmable) {
 			k_timer_start(&sIndicatorTimer, K_MSEC(PX_BREATH_MS), K_MSEC(PX_BREATH_MS));
@@ -195,6 +185,27 @@ static PXLEDController *sSharedLEDController;
 		[_indicator setActive:YES];
 		OZLog("PXLEDController: solid");
 		break;
+	}
+}
+
+- (void)indicate
+{
+	if (_dimmable) {
+		int level = _breathLevel + _breathDelta;
+
+		if (level >= PX_BREATH_MAX) {
+			level = PX_BREATH_MAX;
+			_breathDelta = -PX_BREATH_STEP;
+		} else if (level <= 0) {
+			level = 0;
+			_breathDelta = PX_BREATH_STEP;
+		}
+
+		_breathLevel = level;
+
+		[(id<PXDimmable>)_indicator setLevel:(uint8_t)level];
+	} else {
+		[_indicator toggle];
 	}
 }
 

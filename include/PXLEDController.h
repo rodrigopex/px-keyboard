@@ -31,5 +31,6 @@ enum px_led_status {
  * that is only on/off.
  */
 - (void)setLEDStatus:(enum px_led_status)status;
+- (void)indicate;
 
 @end
