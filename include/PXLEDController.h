@@ -19,7 +19,7 @@ enum px_led_status {
 	PX_LED_STATUS_ON,
 };
 
-@interface PXLEDController: OZObject <SingletonProtocol>
+@interface PXLEDController: OZObject <OZSingletonProtocol>
 
 + (void)initialize;
 + (instancetype)sharedInstance;

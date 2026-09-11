@@ -42,7 +42,7 @@ struct msg_keys {
 
 ZBUS_CHAN_DECLARE(chan_keys); /* Type: struct msg_keys */
 
-@interface PXKeyboard: OZObject <SingletonProtocol>
+@interface PXKeyboard: OZObject <OZSingletonProtocol>
 
 + (void)initialize;
 + (instancetype)sharedInstance;

@@ -17,7 +17,7 @@
 
 #include <zephyr/kernel.h>
 
-@interface PXHIDService: OZObject <SingletonProtocol>
+@interface PXHIDService: OZObject <OZSingletonProtocol>
 
 + (void)initialize;
 + (instancetype)sharedInstance;

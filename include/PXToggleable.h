@@ -17,7 +17,7 @@
 /**
  * @brief An indicator that can be switched on, off, or inverted.
  *
- * `<ObjectProtocol>` is what lets PXLEDController ask its indicator a
+ * `<OZObjectProtocol>` is what lets PXLEDController ask its indicator a
  * runtime question at all. Clang resolves a message sent to an
  * `id<PXToggleable>` against this protocol and its super-protocols and
  * nowhere else, so `[_indicator conformsToProtocol:@protocol(PXDimmable)]`
@@ -27,7 +27,7 @@
  * declares is defined once, on OZObject, and an inherited implementation
  * satisfies a protocol requirement.
  */
-@protocol PXToggleable <ObjectProtocol>
+@protocol PXToggleable <OZObjectProtocol>
 
 /** @brief Logical state of the indicator. */
 - (BOOL)isActive;
