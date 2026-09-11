@@ -75,7 +75,7 @@
 	[self setActive:_level > 0 ? NO : YES];
 }
 
-- (int)cDescription:(char *)buf maxLength:(size_t)maxLen
+- (int)getDescription:(char *)buf maxLength:(size_t)maxLen
 {
 	return snprintk(buf, maxLen, "<PWMOutput: %s ch %u, level=%u>", _spec->dev->name,
 			_spec->channel, _level);

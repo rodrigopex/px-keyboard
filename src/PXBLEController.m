@@ -770,7 +770,7 @@ static PXBLEController *sSharedController;
 	}
 }
 
-- (int)cDescription:(char *)buf maxLength:(size_t)maxLen
+- (int)getDescription:(char *)buf maxLength:(size_t)maxLen
 {
 	static const char *const kStateNames[] = {"idle", "advertising", "connected"};
 	unsigned int bonds = 0;

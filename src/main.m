@@ -52,7 +52,7 @@ ZBUS_ASYNC_LISTENER_DEFINE(alis_keys_debug,
 ZBUS_CHAN_ADD_OBS(chan_keys, alis_keys_debug, 4);
 
 /*
- * Every singleton overrides -cDescription:maxLength:, so dumping the whole
+ * Every singleton overrides -getDescription:maxLength:, so dumping the whole
  * app is four %@ conversions. SHELL_CMD_REGISTER wants a raw handler
  * pointer, so the block needs OZFN.
  */

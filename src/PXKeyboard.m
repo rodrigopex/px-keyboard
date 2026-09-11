@@ -151,7 +151,7 @@ static PXKeyboard *sSharedKeyboard;
 	}
 }
 
-- (int)cDescription:(char *)buf maxLength:(size_t)maxLen
+- (int)getDescription:(char *)buf maxLength:(size_t)maxLen
 {
 	return snprintk(buf, maxLen, "<PXKeyboard: mask=0x%02x long=0x%02x>", _mask, _longMask);
 }
