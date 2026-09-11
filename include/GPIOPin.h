@@ -4,12 +4,12 @@
  */
 
 /**
- * @file OZGPIOPin.h
+ * @file GPIOPin.h
  * @brief Base class for GPIO pin wrappers.
  *
  * Holds a copy of the Zephyr gpio_dt_spec and provides common
- * configuration. Use OZGPIOOutput or OZGPIOInput instead of
- * instantiating this class directly.
+ * configuration. Use GPIOOutput rather than instantiating this class
+ * directly.
  */
 #pragma once
 #import <Foundation/Foundation.h>
@@ -18,7 +18,7 @@
 
 /**
  * @brief Abstract base class for GPIO pins.
- * @headerfile OZGPIOPin.h Foundation/Foundation.h
+ * @headerfile GPIOPin.h Foundation/Foundation.h
  * @ingroup objc
  *
  * Stores a struct-copied gpio_dt_spec ivar. Subclasses configure the

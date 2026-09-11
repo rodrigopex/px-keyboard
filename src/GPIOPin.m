@@ -4,7 +4,7 @@
  */
 
 /**
- * @file OZGPIOPin.m
+ * @file GPIOPin.m
  * @brief Base GPIO pin class implementation.
  */
 #import "GPIOPin.h"
