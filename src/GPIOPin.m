@@ -22,7 +22,7 @@
 		_spec = spec;
 
 		if (!gpio_is_ready_dt(_spec)) {
-			printk("GPIO port not ready\n"); //, _spec->port->name);
+			printk("GPIO port not ready\n");
 			return nil;
 		}
 
