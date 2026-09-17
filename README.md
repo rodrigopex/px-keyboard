@@ -1,0 +1,174 @@
+# PX Keyboard
+
+A Bluetooth LE HID keyboard firmware for the nRF52833 DK, written in
+[Objective-Z](https://github.com/rodrigopex/objective-z) — the heap-free,
+ahead-of-time Objective-C subset for Zephyr RTOS.
+
+Four buttons type `pxkb`; the same four, held for five seconds, become a
+gesture layer (advertising toggle, link drop, battery report, forget-bond).
+Pairing shows its passkey as LED blinks instead of a screen. About 1,700
+lines of Objective-Z, no heap, no Objective-C runtime.
+
+v0.2.0.
+
+## Architecture
+
+Everything is a singleton that talks to its neighbours only through two
+zbus channels:
+
+```mermaid
+flowchart LR
+  SW["buttons sw0..sw3"] -->|input events| KB["PXKeyboard"]
+  KB -->|pub| CK(("chan_keys"))
+  CK -->|obs| HID["PXHIDService"]
+  CK -->|obs| BLE["PXBLEController"]
+  CK -->|obs| DBG["debug listener"]
+  HID -->|bt_gatt_notify| HOST["BLE host"]
+  BT["Bluetooth stack callbacks"] --> BLE
+  BLE -->|pub| CL(("chan_ble_link"))
+  CL -->|obs| LEDC["PXLEDController"]
+  LEDC --> LED["led0 / pwm_led0"]
+```
+
+`chan_keys` (owned by `PXKeyboard`) carries button state; `chan_ble_link`
+(owned by `PXBLEController`) carries link state. Publishers never know their
+consumers; consumers subscribe from their own file and never call their
+publishers. The rules behind this are collected in
+[docs/OZ-IDIOMS.md](docs/OZ-IDIOMS.md).
+
+## What Objective-Z buys here
+
+- **Blocks at callback registration sites.** The BLE connection callbacks are
+  written inline where they are registered
+  ([PXBLEController.m](src/PXBLEController.m)), instead of named functions
+  scattered across the file.
+- **Protocols ask runtime questions.** `PXLEDController` holds an
+  `id<PXToggleable>` and asks at init whether its indicator also conforms to
+  `PXDimmable`, choosing breathe-vs-blink without any switch on the driver
+  ([PXLEDController.m](src/PXLEDController.m)).
+- **Inheritance for shared driver code.** `GPIOPin` handles the devicetree
+  spec and readiness check once; `GPIOOutput` specialises it as an output
+  ([GPIOPin.m](src/GPIOPin.m)).
+- **Heap-free singletons.** Every subsystem is `[Class sharedInstance]` and
+  implements `-getDescription:maxLength:`, which is what lets `px_info` dump
+  the whole app in four lines ([main.m](src/main.m)).
+
+## Requirements
+
+- nRF52833 DK (`nrf52833dk/nrf52833`)
+- Zephyr SDK 1.0.1 (the justfile default; override with `just sdk=...`)
+- `west`, `just`, `tio`
+
+## Workspace layout
+
+px-keyboard is not a west project. It sits _next to_ the Objective-Z module
+and a Zephyr checkout, and the build files resolve both relative to this
+repository:
+
+```
+objective-z-workspace/
+├── deps/zephyr      # ZEPHYR_BASE
+├── objective-z/     # ZEPHYR_EXTRA_MODULES
+└── px-keyboard/     # this repository
+```
+
+`CMakeLists.txt` adds `../objective-z` as an extra module; the justfile
+resolves `ZEPHYR_BASE` to `../deps/zephyr` from the parent directory.
+
+## Build, flash, run
+
+```
+just         # list the recipes
+just run     # build + flash + monitor
+```
+
+Two defaults are machine-specific and overridable per invocation:
+
+```
+just sdk=~/.local/zephyr-sdk-1.0.0 rebuild
+just tty=/dev/tty.usbmodemXXX monitor
+```
+
+Use `just rebuild` after touching `prj.conf`, `app.overlay`,
+`CMakeLists.txt`, or the transpiler.
+
+## What you should see
+
+> [!NOTE]
+> Reconstructed from the app's log strings; replace with a real console
+> capture once re-verified on hardware.
+
+1. Boot banner `=== PX Keyboard v0.2.0 ===`, then each singleton logs
+   `initialized` as it is first touched.
+2. `Bluetooth initialized`, `Identity 1: <address>`, `Advertising started`,
+   and the LED begins to breathe.
+3. Pair from the host: the device counts out a passkey on led1 (3–10 blinks)
+   and prints `Pairing passkey for <address>: 0000NN`; type the six digits,
+   leading zeros included.
+4. Pressing sw0–sw3 types `p`, `x`, `k`, `b`; the debug observer prints
+   `keys: mask=0x.. long=0x..`.
+5. `px_info` at the shell dumps every subsystem; `kernel thread stacks` shows
+   the stack budgets documented in `prj.conf`.
+
+### Gestures (hold 5 s)
+
+| Button | Key | Action |
+|--------|-----|--------|
+| sw0 | P | toggle advertising |
+| sw1 | X | drop the current link |
+| sw2 | K | push battery level (100%) |
+| sw3 | B | forget bond: new address, re-pairable at once |
+
+### LED
+
+Breathes while advertising (PWM); blinks while advertising on a GPIO-only
+indicator; solid when connected; off when idle.
+
+## Reading the code
+
+First pass, in this order:
+
+1. The headers in `include/` — each class, protocol, channel and message.
+2. `src/main.m` — how little wiring is left once the rules hold.
+3. `src/PXKeyboard.m` and `src/PXHIDService.m` — the `chan_keys` story.
+4. `src/PXBLEController.m` — the largest file; its header comment has a
+   section index.
+5. `src/PXLEDController.m`, then `src/GPIOPin.m` onward — the indicator and
+   driver shims.
+
+The `.m` comments are deliberately the *why* layer: stack overflows,
+`-ENOMEM` on re-advertising, identity rotation. Skip them on the first pass
+and come back when you hit the same problem.
+
+## Tear it apart (learn by removal)
+
+Because every subsystem meets only on a zbus channel, the BLE half of the
+app is deletable. This is a recipe for _your own checkout_, not a change to
+this repository:
+
+1. Delete `src/PXBLEController.m`, `src/PXHIDService.m`, and
+   `src/PXLEDController.m`.
+2. In `CMakeLists.txt`, drop those three from `objz_transpile_sources`.
+3. In `src/main.m`, drop the `PXBLEController`/`PXHIDService`/
+   `PXLEDController` imports, the three `px_info` lines, and the
+   `[[PXBLEController sharedInstance] start]` call.
+4. In `prj.conf`, drop the Bluetooth block while keeping INPUT, ZBUS and the
+   debug/shell options.
+
+What remains is input → `chan_keys` → the async debug listener: a ~50-line
+app worth reading before the full keyboard.
+
+> [!NOTE]
+> Pending verification on hardware; the exact `prj.conf` lines are filled
+> in after two builds (full, then trimmed).
+
+## New to Objective-Z?
+
+Start with the samples in the
+[objective-z repo](https://github.com/rodrigopex/objective-z/tree/main/samples)
+(`hello_world`, `gpio_demo`, `transpiled_led`, `transpiled_blocks`), then
+the language docs (`docs/ARC.md`), then come back here.
+
+## License
+
+Apache-2.0.
