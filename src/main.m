@@ -22,6 +22,7 @@
 #include <zephyr/app_version.h>
 #include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
+#include <zephyr/sys/iterable_sections.h>
 
 /*
  * Mirrors samples/zbus_service's lis_print_temp: an observer purely to
@@ -70,6 +71,22 @@ SHELL_CMD_REGISTER(px_info, NULL, "Dump PX keyboard state",
 		     return 0;
 		   }));
 
+/*
+ * Boot-time wiring report: the zbus graph as the linker sees it. Every
+ * ZBUS_CHAN_ADD_OBS in this app lands in the zbus_channel_observation
+ * iterable section, so one loop prints each channel and who listens to
+ * it. Needs CONFIG_ZBUS_OBSERVER_NAME=y, else zbus_obs_name() returns a
+ * placeholder instead of the listener's name.
+ */
+static void print_wiring_report(void)
+{
+	OZLog("zbus wiring:");
+	STRUCT_SECTION_FOREACH(zbus_channel_observation, observation) {
+		OZLog("  %s -> %s", zbus_chan_name(observation->chan),
+		      zbus_obs_name(observation->obs));
+	}
+}
+
 int main(void)
 {
 	/* The version on the banner, so a console log identifies the build
@@ -78,6 +95,8 @@ int main(void)
 	 * Zephyr's app-version machinery, so `west build` is the only
 	 * place it is written down. */
 	OZLog("=== PX Keyboard v%s ===", APP_VERSION_STRING);
+
+	print_wiring_report();
 
 	[[PXBLEController sharedInstance] start];
 
