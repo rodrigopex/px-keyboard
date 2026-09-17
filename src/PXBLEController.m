@@ -8,6 +8,11 @@
  * @brief Link state machine: idle -> advertising -> connected, plus the
  *        low-level BLE callbacks, advertising, pairing, and the four
  *        long-press gestures.
+ *
+ * Sections, in order: advertising data, connection callbacks, pairing
+ * (passkey and the led1 blink bursts), bt_ready and identity resolution,
+ * then the PXBLEController class itself -- state machine, advertising,
+ * and the four gesture methods.
  */
 #import "PXBLEController.h"
 #import "GPIOOutput.h"
