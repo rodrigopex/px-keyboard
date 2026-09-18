@@ -36,7 +36,10 @@ scope, so it reaches objects through `+sharedInstance` (or file-scope
 statics), never through a capture. Prefer `OZFN`: it leaves the enclosing
 macro visible to Clang. Use `OZM` only where the macro token-pastes its
 argument — the `INPUT_CALLBACK_DEFINE` case in `PXKeyboard.m`, which also
-explains what goes wrong otherwise.
+explains what goes wrong otherwise. And two files must not carry a hoisted
+block on the same line: the generated symbol is named after the block's
+own-file line and column, so identical positions in two files collide at
+link (see the comment above `alis_keys_debug` in `main.m`).
 
 ## 5. Every singleton implements `-getDescription:maxLength:`
 
