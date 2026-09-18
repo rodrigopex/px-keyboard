@@ -13,3 +13,6 @@ compile_commands.json
 .gdbinit
 .zed
 .claude/
+
+# Local agent skills -- machine-specific workflow, not part of the project.
+.agents/skills/
