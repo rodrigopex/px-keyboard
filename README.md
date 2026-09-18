@@ -94,12 +94,9 @@ Use `just rebuild` after touching `prj.conf`, `app.overlay`,
 
 ## What you should see
 
-> [!NOTE]
-> Reconstructed from the app's log strings; replace with a real console
-> capture once re-verified on hardware.
-
 1. Boot banner `=== PX Keyboard v0.2.0 ===`, then each singleton logs
-   `initialized` as it is first touched.
+   `initialized` as it is first touched, then the wiring report: one
+   `channel -> observer` line per registration.
 2. `Bluetooth initialized`, `Identity 1: <address>`, `Advertising started`,
    and the LED begins to breathe.
 3. Pair from the host: the device counts out a passkey on led1 (3–10 blinks)
@@ -112,12 +109,15 @@ Use `just rebuild` after touching `prj.conf`, `app.overlay`,
 
 ### Gestures (hold 5 s)
 
-| Button | Key | Action |
-|--------|-----|--------|
-| sw0 | P | toggle advertising |
-| sw1 | X | drop the current link |
-| sw2 | K | push battery level (100%) |
-| sw3 | B | forget bond: new address, re-pairable at once |
+The DK silkscreen numbers its buttons 1-4; `sw0` is Button 1, `sw3` is
+Button 4.
+
+| Switch | DK button | Key | Action |
+|--------|-----------|-----|--------|
+| sw0 | Button 1 | P | toggle advertising |
+| sw1 | Button 2 | X | drop the current link |
+| sw2 | Button 3 | K | push battery level (100%) |
+| sw3 | Button 4 | B | forget bond: new address, re-pairable at once |
 
 ### LED
 
