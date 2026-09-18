@@ -43,12 +43,20 @@
  * the rule costs a work-queue hop on a debug log and removes the whole
  * class of fault instead of re-deciding it per listener.
  */
+/*
+ * The block opens on a line of its own: a hoisted block's symbol is named
+ * oz_block_L<line>_C<col>_<n> after where it sits in its own file, and this
+ * one and PXBLEController.m's gesture listener both sat on line 47 -- the
+ * linker rejected the duplicate. An edit that realigns the two brings the
+ * collision back.
+ */
 ZBUS_ASYNC_LISTENER_DEFINE(alis_keys_debug,
-			   OZFN(^(const struct zbus_channel *chan, const void *message) {
-			     const struct msg_keys *keys = message;
+			   OZFN(
+			     ^(const struct zbus_channel *chan, const void *message) {
+			       const struct msg_keys *keys = message;
 
-			     OZLog("keys: mask=0x%02x long=0x%02x", keys->mask, keys->long_mask);
-			   }));
+			       OZLog("keys: mask=0x%02x long=0x%02x", keys->mask, keys->long_mask);
+			     }));
 
 ZBUS_CHAN_ADD_OBS(chan_keys, alis_keys_debug, 4);
 
