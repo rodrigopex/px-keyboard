@@ -19,10 +19,11 @@ scope, unrelated work that cannot be preserved safely, failed verification, push
 denial, or merge/rebase conflicts.
 
 This repository lands directly: make a local topic branch, rebase it onto the
-latest `origin/main`, merge it into local `main`, then push `main` to `origin`.
-Do not open a pull request or wait for CI; this repository currently has no CI
-workflow configured, and the project owner specified that PRs are not the
-landing path.
+latest `origin/main`, merge it into local `main`, push `main` to Delta's `local`
+remote first so the user's project checkout is updated, then push `main` to
+`origin`. Do not open a pull request or wait for CI; this repository currently
+has no CI workflow configured, and the project owner specified that PRs are not
+the landing path.
 
 ## Sources for project-specific commands
 
@@ -81,21 +82,33 @@ landing path.
      rebase, stop and explain why instead of inventing a merge strategy.
    - If conflicts occur, pause and ask the user.
 
-6. Push and verify the destination.
-   - Push `main` to `origin`.
+6. Update the user's local project checkout first.
+   - Inspect `git remote -v` and confirm there is a `local` remote. In Delta,
+     this is the backlink to the user's primary project checkout.
+   - Push `main` to `local` before pushing to `origin`:
+     `git push local main:main`
+   - If this push is rejected, stop and report the blocker. Do not push to
+     `origin` while the user's local project checkout would remain behind.
+   - Verify that `local/main` now points at or contains the landed commit, for
+     example with `git ls-remote local refs/heads/main` or an equivalent
+     inspected ref.
+
+7. Push and verify the upstream destination.
+   - Push `main` to `origin` only after the `local` remote has been updated and
+     verified.
    - Fetch or inspect `origin/main` after the push and verify that the landed
      commit is reachable from `origin/main`.
-   - Successful landing means the requested change is present on `origin/main`,
-     not merely committed locally, verified locally, or pushed to a topic
-     branch.
+   - Successful landing means the requested change is present on both
+     `local/main` and `origin/main`, not merely committed locally, verified
+     locally, or pushed to a topic branch.
 
-7. Report the outcome.
+8. Report the outcome.
    - In the conversation, summarize the landed commit short SHA, destination,
      and verification command.
    - If running in a subthread and `report_subthread_status` is available, also
      report the result to the parent:
      - Use `status: "success"` only after verifying the requested commit is on
-       `origin/main`.
+       both `local/main` and `origin/main`.
      - Use `status: "failure"` for failed builds, conflicts, push denial,
        ambiguous scope, or any blocker that prevents landing.
      - Keep the title short, such as `Landed on main`, `Blocked by build`,
