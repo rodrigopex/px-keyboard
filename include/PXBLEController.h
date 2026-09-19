@@ -5,18 +5,18 @@
 
 /**
  * @file PXBLEController.h
- * @brief BLE link state machine, and the long-press gestures that drive it.
+ * @brief BLE link state channel and controller entry point.
  *
  * Owns chan_ble_link, which is the single source of truth for the link
  * state -- there is no cached _state ivar, -state reads the channel.
+ *
+ * Implementation details such as Bluetooth callbacks, advertising gestures,
+ * bond reset, and passkey display stay private to PXBLEController.m.
  */
 #pragma once
 #import <Foundation/Foundation.h>
 
-#include <zephyr/kernel.h>
 #include <zephyr/zbus/zbus.h>
-
-#import "PXKeyboard.h"
 
 enum px_ble_state {
 	PX_BLE_STATE_IDLE,
@@ -40,59 +40,5 @@ ZBUS_CHAN_DECLARE(chan_ble_link); /* Type: struct msg_ble_link */
 
 /** @brief Current link state, read from chan_ble_link. */
 - (enum px_ble_state)state;
-
-/* ---- Called by the BLE low-level callbacks ---- */
-
-/** @brief The BT stack finished initializing. */
-- (void)onBTReady;
-
-/** @brief A central connected. */
-- (void)onConnected;
-
-/** @brief The central went away. The link is down, but not yet reusable. */
-- (void)onDisconnected;
-
-/**
- * @brief A connection object was returned to the pool.
- *
- * Where advertising restarts. Not `-onDisconnected`: at that point the
- * connection object still exists, and `bt_le_adv_start` fails -ENOMEM
- * because there is nothing to accept a new central with. Zephyr's own
- * `bt_conn_cb.disconnected` documentation says to use `recycled` for
- * exactly this.
- */
-- (void)onConnectionRecycled;
-
-/* ---- Gestures ---- */
-
-/**
- * @brief Dispatch the gesture assigned to a long-pressed key.
- * @param key Key whose long press fired.
- */
-- (void)handleLongPress:(enum px_key)key;
-
-/** @brief sw0 — stop advertising if advertising, start it if not. */
-- (void)toggleAdvertising;
-
-/** @brief sw1 — drop the current link, keeping the bond. */
-- (void)disconnectLink;
-
-/** @brief sw2 — push a battery level to the host. */
-- (void)reportBatteryLevel;
-
-/**
- * @brief sw3 — forget every bond, take a new address, and re-advertise.
- *
- * Clearing our own keys is not enough on its own: BLE has no way to tell a
- * host to release its side, and a host holding a bond whose key we deleted
- * refuses the next connection instead of pairing again. So this resets the
- * whole identity, address included, and the keyboard comes back as a device
- * the host has never met — pairable immediately, with no visit to the host's
- * Bluetooth settings.
- *
- * The host's old entry does stay in its device list, dead. Nothing a
- * peripheral can send will remove it.
- */
-- (void)forgetBond;
 
 @end

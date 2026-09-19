@@ -31,6 +31,22 @@
 #include <zephyr/sys/printk.h>
 #include <zephyr/types.h>
 
+/*
+ * Private selectors needed by same-file callbacks and hoisted blocks.
+ *
+ * They must be declared before the OZFN blocks that send them, but they do not
+ * belong in the public header.
+ */
+@interface PXBLEController ()
+
+- (void)onBTReady;
+- (void)onConnected;
+- (void)onDisconnected;
+- (void)onConnectionRecycled;
+- (void)handleLongPress:(enum px_key)key;
+
+@end
+
 static struct bt_conn *sCurrentConn;
 
 ZBUS_CHAN_DEFINE(chan_ble_link, struct msg_ble_link, NULL, NULL, ZBUS_OBSERVERS_EMPTY,
