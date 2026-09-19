@@ -15,6 +15,8 @@
  * and the four gesture methods.
  */
 #import "PXBLEController.h"
+#import "PXBatterySource.h"
+#import "PXStaticBatterySource.h"
 #import "GPIOOutput.h"
 #import "PXKeyboard.h"
 
@@ -44,6 +46,7 @@
 - (void)onDisconnected;
 - (void)onConnectionRecycled;
 - (void)handleLongPress:(enum px_key)key;
+- (id)initWithBatterySource:(id<PXBatterySource>)batterySource;
 
 @end
 
@@ -535,13 +538,21 @@ static void bt_ready(int err)
 /* ---- PXBLEController ---- */
 
 static PXBLEController *sSharedController;
+static PXStaticBatterySource *sDefaultBatterySource;
 
 @implementation PXBLEController {
 	BOOL _advertising;
+	id<PXBatterySource> _batterySource;
 }
 
 + (void)initialize
 {
+	/*
+	 * The DK has no battery measurement hardware. Keeping the fixed
+	 * value in a source rather than here makes that development choice
+	 * explicit and leaves BAS publication independent of future hardware.
+	 */
+	sDefaultBatterySource = [[PXStaticBatterySource alloc] initWithChargePercentage:100];
 	sSharedController = [[PXBLEController alloc] init];
 }
 
@@ -552,9 +563,20 @@ static PXBLEController *sSharedController;
 
 - (instancetype)init
 {
+	return [self initWithBatterySource:sDefaultBatterySource];
+}
+
+- (id)initWithBatterySource:(id<PXBatterySource>)batterySource
+{
 	self = [super init];
 	if (self) {
+		if (batterySource == nil) {
+			OZLog("PXBLEController: battery source unavailable");
+			return nil;
+		}
+
 		_advertising = NO;
+		_batterySource = batterySource;
 
 		if (kLed1Spec.port) {
 			sBurstLed = [[GPIOOutput alloc] initWithDTSpec:&kLed1Spec flags:0];
@@ -702,13 +724,25 @@ static PXBLEController *sSharedController;
 - (void)reportBatteryLevel
 {
 	/*
-	 * No fuel gauge on this board, so this reports a fixed level. It is
-	 * here to exercise the BAS characteristic the advertising data
-	 * already claims.
+	 * Acquisition is deliberately separate from publication: a future
+	 * fuel-gauge or ADC source changes source selection, not BAS
+	 * publication logic. Do not publish a stale or invented value if the
+	 * measurement failed.
 	 */
-	uint8_t level = 100;
+	uint8_t level;
+	int err = [_batterySource readChargePercentage:&level];
 
-	int err = bt_bas_set_battery_level(level);
+	if (err) {
+		OZLog("PXBLEController: battery read failed: %d", err);
+		return;
+	}
+
+	if (level > 100U) {
+		OZLog("PXBLEController: invalid battery level: %u%%", level);
+		return;
+	}
+
+	err = bt_bas_set_battery_level(level);
 	if (err) {
 		printk("bt_bas_set_battery_level failed (err %d)\n", err);
 		return;

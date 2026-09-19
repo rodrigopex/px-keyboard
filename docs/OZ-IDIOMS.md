@@ -52,3 +52,11 @@ stale.
 Stack sizes, errnos and Kconfig choices in `prj.conf` carry the measurement
 and the failure that motivated them. Change the number, and the comment next
 to it is the thing to update.
+
+## 7. Hardware acquisition is a narrow capability; transport stays owned
+
+`PXBatterySource` supplies only a Battery Service-compatible percentage.
+`PXBLEController` owns the different concern of publishing a valid reading
+through Zephyr BAS. A later fuel gauge or ADC changes source selection, not
+the BAS publication logic; the DK's `PXStaticBatterySource` is explicit about
+being a fixed development value rather than a measurement.

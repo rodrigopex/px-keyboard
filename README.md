@@ -37,6 +37,12 @@ consumers; consumers subscribe from their own file and never call their
 publishers. The rules behind this are collected in
 [docs/OZ-IDIOMS.md](docs/OZ-IDIOMS.md).
 
+Battery acquisition follows the same boundary: `PXBLEController` publishes a
+successful reading through Zephyr's Battery Service, while an
+`id<PXBatterySource>` supplies the percentage. The DK has no battery
+measurement hardware, so its default `PXStaticBatterySource` deliberately
+reports a fixed development value of 100%.
+
 ## What Objective-Z buys here
 
 - **Blocks at callback registration sites.** The BLE connection callbacks are
@@ -118,7 +124,7 @@ Button 4.
 |--------|-----------|-----|--------|
 | sw0 | Button 1 | P | toggle advertising |
 | sw1 | Button 2 | X | drop the current link |
-| sw2 | Button 3 | K | push battery level (100%) |
+| sw2 | Button 3 | K | push development battery level (fixed at 100%) |
 | sw3 | Button 4 | B | forget bond: new address, re-pairable at once |
 
 ### LED

@@ -25,6 +25,7 @@ objz_transpile_sources(app
     src/GPIOPin.m
     src/GPIOOutput.m
     src/PWMOutput.m
+    src/PXStaticBatterySource.m
     src/PXKeyboard.m
     src/PXHIDService.m
     src/PXBLEController.m
