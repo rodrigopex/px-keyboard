@@ -16,6 +16,8 @@
 #include <zephyr/kernel.h>
 #include <zephyr/zbus/zbus.h>
 
+#import "PXKeyboard.h"
+
 enum px_ble_state {
 	PX_BLE_STATE_IDLE,
 	PX_BLE_STATE_ADVERTISING,
@@ -64,10 +66,10 @@ ZBUS_CHAN_DECLARE(chan_ble_link); /* Type: struct msg_ble_link */
 /* ---- Gestures ---- */
 
 /**
- * @brief Dispatch the long-press gesture table on each rising edge.
- * @param longMask Bitmask of keys held past the long-press delay.
+ * @brief Dispatch the gesture assigned to a long-pressed key.
+ * @param key Key whose long press fired.
  */
-- (void)handleLongMask:(uint8_t)longMask;
+- (void)handleLongPress:(enum px_key)key;
 
 /** @brief sw0 — stop advertising if advertising, start it if not. */
 - (void)toggleAdvertising;

@@ -7,7 +7,7 @@
  * @file PXHIDService.h
  * @brief BLE HID keyboard GATT service.
  *
- * Observes chan_keys and turns each key mask into a HID input report.
+ * Observes chan_input, owns held-key state, and sends HID input reports.
  * Upstream Zephyr has no HID-over-GATT service (see
  * deps/zephyr/subsys/bluetooth/services/), so the report map, the GATT
  * table and the notification live here.
@@ -17,10 +17,15 @@
 
 #include <zephyr/kernel.h>
 
+struct msg_input;
+
 @interface PXHIDService: OZObject <OZSingletonProtocol>
 
 + (void)initialize;
 + (instancetype)sharedInstance;
+
+/** @brief Update held-key state from one semantic input event. */
+- (void)handleInput:(const struct msg_input *)input;
 
 /**
  * @brief Build and send a HID keyboard report from a key bitmask.

@@ -31,7 +31,7 @@
  * Async, like every other observer in this app, and for one rule rather
  * than a per-case judgement: **a listener never runs on the publisher's
  * stack.** A synchronous one does, and the publishers here are all
- * interrupt-driven paths with small stacks -- chan_keys is published from
+ * interrupt-driven paths with small stacks -- chan_input is published from
  * the input subsystem's own thread (CONFIG_INPUT_MODE_THREAD, 1024 bytes
  * by default), and chan_ble_link from the Bluetooth connection callbacks
  * (1200).
@@ -44,21 +44,39 @@
  * class of fault instead of re-deciding it per listener.
  */
 /*
- * The block opens on a line of its own: a hoisted block's symbol is named
- * oz_block_L<line>_C<col>_<n> after where it sits in its own file, and this
- * one and PXBLEController.m's gesture listener both sat on line 47 -- the
- * linker rejected the duplicate. An edit that realigns the two brings the
- * collision back.
+ * Hoisted blocks are named oz_block_L<line>_C<col>_<n> after their own-file
+ * source position. Another file with the same position and per-file index
+ * generates the same symbol, which the linker rejects. Keep this block's
+ * position distinct from the other hoisted blocks; the cross-file collision
+ * audit checks that invariant.
  */
-ZBUS_ASYNC_LISTENER_DEFINE(alis_keys_debug,
-			   OZFN(
-			     ^(const struct zbus_channel *chan, const void *message) {
-			       const struct msg_keys *keys = message;
+static const char *input_type_name(enum px_input_event_type type)
+{
+	static const char *const names[] = {
+		[PX_INPUT_NONE] = "none",       [PX_INPUT_DOWN] = "down",
+		[PX_INPUT_UP] = "up",           [PX_INPUT_LONG_DOWN] = "long-down",
+		[PX_INPUT_LONG_UP] = "long-up",
+	};
 
-			       OZLog("keys: mask=0x%02x long=0x%02x", keys->mask, keys->long_mask);
-			     }));
+	return names[type];
+}
 
-ZBUS_CHAN_ADD_OBS(chan_keys, alis_keys_debug, 4);
+static const char *input_key_name(enum px_key key)
+{
+	static const char *const names[] = {"P", "X", "K", "B"};
+
+	return names[key];
+}
+
+ZBUS_ASYNC_LISTENER_DEFINE(alis_input_debug,
+			   OZFN(^(const struct zbus_channel *chan, const void *message) {
+			     const struct msg_input *input = message;
+
+			     OZLog("input: %s %s", input_type_name(input->type),
+				   input_key_name(input->key));
+			   }));
+
+ZBUS_CHAN_ADD_OBS(chan_input, alis_input_debug, 4);
 
 /*
  * Every singleton overrides -getDescription:maxLength:, so dumping the whole

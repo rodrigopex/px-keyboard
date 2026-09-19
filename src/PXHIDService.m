@@ -5,7 +5,7 @@
 
 /**
  * @file PXHIDService.m
- * @brief HID GATT service, report map, and chan_keys -> report.
+ * @brief HID GATT service, report map, and chan_input -> report.
  */
 #import "PXHIDService.h"
 #import "PXKeyboard.h"
@@ -186,11 +186,11 @@ BT_GATT_SERVICE_DEFINE(hid_kbd_svc, BT_GATT_PRIMARY_SERVICE(BT_UUID_HIDS),
  */
 ZBUS_ASYNC_LISTENER_DEFINE(alis_hid_report,
 			   OZFN(^(const struct zbus_channel *chan, const void *message) {
-			     const struct msg_keys *keys = message;
-			     [[PXHIDService sharedInstance] sendReportForMask:keys->mask];
+			     const struct msg_input *input = message;
+			     [[PXHIDService sharedInstance] handleInput:input];
 			   }));
 
-ZBUS_CHAN_ADD_OBS(chan_keys, alis_hid_report, 2);
+ZBUS_CHAN_ADD_OBS(chan_input, alis_hid_report, 2);
 
 /* ---- Key mapping: sw0->P, sw1->X, sw2->K, sw3->B, spelling PX-KB ---- */
 
@@ -203,7 +203,9 @@ static const uint8_t sKeyMap[PX_KEY_COUNT] = {
 
 static PXHIDService *sSharedService;
 
-@implementation PXHIDService
+@implementation PXHIDService {
+	uint8_t _mask;
+}
 
 + (void)initialize
 {
@@ -219,11 +221,37 @@ static PXHIDService *sSharedService;
 {
 	self = [super init];
 	if (self) {
+		_mask = 0;
 		oz_assert(!bt_uuid_cmp(hid_kbd_svc.attrs[PX_HID_REPORT_ATTR].uuid,
 				       BT_UUID_GATT_CHRC));
 		OZLog("PXHIDService: initialized");
 	}
 	return self;
+}
+
+- (void)handleInput:(const struct msg_input *)input
+{
+	uint8_t updated = _mask;
+
+	switch (input->type) {
+	case PX_INPUT_DOWN:
+		updated = _mask | BIT(input->key);
+		break;
+	case PX_INPUT_UP:
+		updated = _mask & ~BIT(input->key);
+		break;
+	case PX_INPUT_NONE:
+	case PX_INPUT_LONG_DOWN:
+	case PX_INPUT_LONG_UP:
+		return;
+	}
+
+	if (updated == _mask) {
+		return;
+	}
+
+	_mask = updated;
+	[self sendReportForMask:_mask];
 }
 
 - (void)sendReportForMask:(uint8_t)mask
@@ -256,8 +284,9 @@ static PXHIDService *sSharedService;
 
 - (int)getDescription:(char *)buf maxLength:(size_t)maxLen
 {
-	return snprintk(buf, maxLen, "<PXHIDService: subscribed=%d, report_map=%u bytes>",
-			sNotificationsEnabled, (unsigned int)sizeof(sReportMap));
+	return snprintk(buf, maxLen,
+			"<PXHIDService: subscribed=%d, mask=0x%02x, report_map=%u bytes>",
+			sNotificationsEnabled, _mask, (unsigned int)sizeof(sReportMap));
 }
 
 @end

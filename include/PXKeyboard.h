@@ -5,10 +5,10 @@
 
 /**
  * @file PXKeyboard.h
- * @brief The four buttons, as one zbus channel.
+ * @brief Translate the four buttons into semantic input events.
  *
- * Owns the input-subsystem callback and publishes chan_keys whenever a key
- * or long-press bit changes. Consumers (PXHIDService, PXBLEController)
+ * Owns the input-subsystem callback and publishes chan_input for each known
+ * raw event. Consumers (PXHIDService, PXBLEController)
  * observe the channel; nothing calls into this class.
  */
 #pragma once
@@ -19,7 +19,7 @@
 #include <zephyr/zbus/zbus.h>
 
 /**
- * @brief Key identity, and the bit position it occupies in struct msg_keys.
+ * @brief Key identity, and the bit position used by the HID service.
  *
  * The order is the devicetree button order (sw0..sw3), which is also the
  * order the HID keymap is indexed by, so consumers need no switch.
@@ -33,14 +33,22 @@ enum px_key {
 };
 
 /**
- * @brief Full button state, published on every change.
+ * @brief Semantic input event kind.
  */
-struct msg_keys {
-	uint8_t mask;      /* BIT(PX_KEY_*) — currently held */
-	uint8_t long_mask; /* BIT(PX_KEY_*) — held past long-delay-ms */
+enum px_input_event_type {
+	PX_INPUT_NONE,
+	PX_INPUT_DOWN,
+	PX_INPUT_UP,
+	PX_INPUT_LONG_DOWN,
+	PX_INPUT_LONG_UP,
 };
 
-ZBUS_CHAN_DECLARE(chan_keys); /* Type: struct msg_keys */
+struct msg_input {
+	enum px_input_event_type type;
+	enum px_key key;
+};
+
+ZBUS_CHAN_DECLARE(chan_input); /* Type: struct msg_input */
 
 @interface PXKeyboard: OZObject <OZSingletonProtocol>
 
@@ -48,16 +56,10 @@ ZBUS_CHAN_DECLARE(chan_keys); /* Type: struct msg_keys */
 + (instancetype)sharedInstance;
 
 /**
- * @brief Fold one input event into the key state and publish if it changed.
+ * @brief Translate and publish one raw input event.
  *
  * Called from the input subsystem callback. Not meant for anything else.
  */
 - (void)handleInputEvent:(struct input_event *)evt;
-
-/** @brief Bitmask of currently held keys. */
-- (uint8_t)mask;
-
-/** @brief Bitmask of keys held past the long-press delay. */
-- (uint8_t)longMask;
 
 @end

@@ -19,7 +19,7 @@ zbus channels:
 ```mermaid
 flowchart LR
   SW["buttons sw0..sw3"] -->|input events| KB["PXKeyboard"]
-  KB -->|pub| CK(("chan_keys"))
+  KB -->|pub| CK(("chan_input"))
   CK -->|obs| HID["PXHIDService"]
   CK -->|obs| BLE["PXBLEController"]
   CK -->|obs| DBG["debug listener"]
@@ -30,7 +30,8 @@ flowchart LR
   LEDC --> LED["led0 / pwm_led0"]
 ```
 
-`chan_keys` (owned by `PXKeyboard`) carries button state; `chan_ble_link`
+`chan_input` (owned by `PXKeyboard`) carries one semantic key event per
+publication; `chan_ble_link`
 (owned by `PXBLEController`) carries link state. Publishers never know their
 consumers; consumers subscribe from their own file and never call their
 publishers. The rules behind this are collected in
@@ -103,7 +104,8 @@ Use `just rebuild` after touching `prj.conf`, `app.overlay`,
    and prints `Pairing passkey for <address>: 0000NN`; type the six digits,
    leading zeros included.
 4. Pressing sw0–sw3 types `p`, `x`, `k`, `b`; the debug observer prints
-   `keys: mask=0x.. long=0x..`.
+   semantic events such as `input: down P` and `input: up P`. The changed
+   console stream still needs verification on hardware.
 5. `px_info` at the shell dumps every subsystem; `kernel thread stacks` shows
    the stack budgets documented in `prj.conf`.
 
@@ -130,7 +132,7 @@ First pass, in this order:
 
 1. The headers in `include/` — each class, protocol, channel and message.
 2. `src/main.m` — how little wiring is left once the rules hold.
-3. `src/PXKeyboard.m` and `src/PXHIDService.m` — the `chan_keys` story.
+3. `src/PXKeyboard.m` and `src/PXHIDService.m` — the `chan_input` event flow.
 4. `src/PXBLEController.m` — the largest file; its header comment has a
    section index.
 5. `src/PXLEDController.m`, then `src/GPIOPin.m` onward — the indicator and
@@ -155,7 +157,7 @@ this repository:
 4. In `prj.conf`, drop the Bluetooth block while keeping INPUT, ZBUS and the
    debug/shell options.
 
-What remains is input → `chan_keys` → the async debug listener: a ~50-line
+What remains is input → `chan_input` → the async debug listener: a ~50-line
 app worth reading before the full keyboard.
 
 > [!NOTE]

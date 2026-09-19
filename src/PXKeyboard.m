@@ -5,21 +5,21 @@
 
 /**
  * @file PXKeyboard.m
- * @brief Input subsystem -> chan_keys.
+ * @brief Input subsystem -> chan_input.
  *
  * The buttons arrive as two families of event codes. The raw ones
  * (INPUT_KEY_0..3) come straight from the gpio-keys node in the board
  * devicetree. The long-press ones (INPUT_KEY_M/N/Y/Z) come from the
  * zephyr,input-longpress node in app.overlay, which republishes a held key
  * under a second code after long-delay-ms and clears it on release. Both
- * families reach this one callback, and both fold into one message.
+ * families reach this one callback and become semantic events.
  */
 #import "PXKeyboard.h"
 
 #include <zephyr/dt-bindings/input/input-event-codes.h>
 
-ZBUS_CHAN_DEFINE(chan_keys, struct msg_keys, NULL, NULL, ZBUS_OBSERVERS_EMPTY,
-		 ZBUS_MSG_INIT(.mask = 0, .long_mask = 0));
+ZBUS_CHAN_DEFINE(chan_input, struct msg_input, NULL, NULL, ZBUS_OBSERVERS_EMPTY,
+		 ZBUS_MSG_INIT(.type = PX_INPUT_NONE, .key = PX_KEY_P));
 
 /*
  * The callback is a block so the wiring reads as one unit, which means it
@@ -48,10 +48,7 @@ OZM(
 
 static PXKeyboard *sSharedKeyboard;
 
-@implementation PXKeyboard {
-	uint8_t _mask;
-	uint8_t _longMask;
-}
+@implementation PXKeyboard
 
 + (void)initialize
 {
@@ -67,21 +64,9 @@ static PXKeyboard *sSharedKeyboard;
 {
 	self = [super init];
 	if (self) {
-		_mask = 0;
-		_longMask = 0;
 		OZLog("PXKeyboard: initialized");
 	}
 	return self;
-}
-
-- (uint8_t)mask
-{
-	return _mask;
-}
-
-- (uint8_t)longMask
-{
-	return _longMask;
 }
 
 - (void)handleInputEvent:(struct input_event *)evt
@@ -90,62 +75,48 @@ static PXKeyboard *sSharedKeyboard;
 		return;
 	}
 
-	uint8_t bit;
-	uint8_t *target;
+	struct msg_input msg;
+	BOOL isLong = NO;
 
 	switch (evt->code) {
 	/* Raw presses, from the board's gpio-keys node. */
 	case INPUT_KEY_0:
-		bit = BIT(PX_KEY_P);
-		target = &_mask;
+		msg.key = PX_KEY_P;
 		break;
 	case INPUT_KEY_1:
-		bit = BIT(PX_KEY_X);
-		target = &_mask;
+		msg.key = PX_KEY_X;
 		break;
 	case INPUT_KEY_2:
-		bit = BIT(PX_KEY_K);
-		target = &_mask;
+		msg.key = PX_KEY_K;
 		break;
 	case INPUT_KEY_3:
-		bit = BIT(PX_KEY_B);
-		target = &_mask;
+		msg.key = PX_KEY_B;
 		break;
 	/* Long presses, from the longpress node in app.overlay. */
 	case INPUT_KEY_M:
-		bit = BIT(PX_KEY_P);
-		target = &_longMask;
+		msg.key = PX_KEY_P;
+		isLong = YES;
 		break;
 	case INPUT_KEY_N:
-		bit = BIT(PX_KEY_X);
-		target = &_longMask;
+		msg.key = PX_KEY_X;
+		isLong = YES;
 		break;
 	case INPUT_KEY_Y:
-		bit = BIT(PX_KEY_K);
-		target = &_longMask;
+		msg.key = PX_KEY_K;
+		isLong = YES;
 		break;
 	case INPUT_KEY_Z:
-		bit = BIT(PX_KEY_B);
-		target = &_longMask;
+		msg.key = PX_KEY_B;
+		isLong = YES;
 		break;
 	default:
 		return;
 	}
 
-	uint8_t updated = evt->value ? (*target | bit) : (*target & ~bit);
+	msg.type = isLong ? (evt->value ? PX_INPUT_LONG_DOWN : PX_INPUT_LONG_UP)
+			  : (evt->value ? PX_INPUT_DOWN : PX_INPUT_UP);
 
-	if (updated == *target) {
-		return;
-	}
-
-	*target = updated;
-
-	struct msg_keys msg = {
-		.mask = _mask,
-		.long_mask = _longMask,
-	};
-
-	int ret = zbus_chan_pub(&chan_keys, &msg, K_MSEC(50));
+	int ret = zbus_chan_pub(&chan_input, &msg, K_MSEC(50));
 	if (ret < 0) {
 		OZLog("PXKeyboard: publish failed: %d", ret);
 	}
@@ -153,7 +124,7 @@ static PXKeyboard *sSharedKeyboard;
 
 - (int)getDescription:(char *)buf maxLength:(size_t)maxLen
 {
-	return snprintk(buf, maxLen, "<PXKeyboard: mask=0x%02x long=0x%02x>", _mask, _longMask);
+	return snprintk(buf, maxLen, "<PXKeyboard>");
 }
 
 @end

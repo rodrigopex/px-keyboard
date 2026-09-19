@@ -43,13 +43,15 @@ ZBUS_CHAN_DEFINE(chan_ble_link, struct msg_ble_link, NULL, NULL, ZBUS_OBSERVERS_
  * show as button lag, zbus_async_listener_set_work_queue() moves it off the
  * system work queue.
  */
-ZBUS_ASYNC_LISTENER_DEFINE(alis_ble_keys,
+ZBUS_ASYNC_LISTENER_DEFINE(alis_ble_input,
 			   OZFN(^(const struct zbus_channel *chan, const void *message) {
-			     const struct msg_keys *keys = message;
-			     [[PXBLEController sharedInstance] handleLongMask:keys->long_mask];
+			     const struct msg_input *input = message;
+			     if (input->type == PX_INPUT_LONG_DOWN) {
+				     [[PXBLEController sharedInstance] handleLongPress:input->key];
+			     }
 			   }));
 
-ZBUS_CHAN_ADD_OBS(chan_keys, alis_ble_keys, 3);
+ZBUS_CHAN_ADD_OBS(chan_input, alis_ble_input, 3);
 
 /* ---- Advertising data ---- */
 
@@ -519,13 +521,6 @@ static void bt_ready(int err)
 static PXBLEController *sSharedController;
 
 @implementation PXBLEController {
-	/*
-	 * One selector per key, dispatched on the rising edge of that key's
-	 * long-press bit. Filled in -init rather than as a static initializer,
-	 * so @selector() is evaluated at runtime.
-	 */
-	SEL _gestures[PX_KEY_COUNT];
-	uint8_t _lastLongMask;
 	BOOL _advertising;
 }
 
@@ -543,20 +538,10 @@ static PXBLEController *sSharedController;
 {
 	self = [super init];
 	if (self) {
-		_lastLongMask = 0;
 		_advertising = NO;
 
 		if (kLed1Spec.port) {
 			sBurstLed = [[GPIOOutput alloc] initWithDTSpec:&kLed1Spec flags:0];
-		}
-
-		_gestures[PX_KEY_P] = @selector(toggleAdvertising);
-		_gestures[PX_KEY_X] = @selector(disconnectLink);
-		_gestures[PX_KEY_K] = @selector(reportBatteryLevel);
-		_gestures[PX_KEY_B] = @selector(forgetBond);
-
-		for (int key = 0; key < PX_KEY_COUNT; key++) {
-			oz_assert([self respondsToSelector:_gestures[key]]);
 		}
 
 		OZLog("PXBLEController: initialized");
@@ -655,17 +640,24 @@ static PXBLEController *sSharedController;
 
 /* ---- Gestures ---- */
 
-- (void)handleLongMask:(uint8_t)longMask
+- (void)handleLongPress:(enum px_key)key
 {
-	uint8_t rising = longMask & ~_lastLongMask;
-
-	_lastLongMask = longMask;
-
-	for (int key = 0; key < PX_KEY_COUNT; key++) {
-		if (rising & BIT(key)) {
-			OZLog("PXBLEController: gesture on key %d", key);
-			[self performSelector:_gestures[key]];
-		}
+	OZLog("PXBLEController: gesture on key %d", key);
+	switch (key) {
+	case PX_KEY_P:
+		[self toggleAdvertising];
+		break;
+	case PX_KEY_X:
+		[self disconnectLink];
+		break;
+	case PX_KEY_K:
+		[self reportBatteryLevel];
+		break;
+	case PX_KEY_B:
+		[self forgetBond];
+		break;
+	case PX_KEY_COUNT:
+		break;
 	}
 }
 
@@ -792,10 +784,8 @@ static PXBLEController *sSharedController;
 	 * characters into a buffer this has to share, and it is already
 	 * printed at boot and on every reset, which is where it matters.
 	 */
-	return snprintk(buf, maxLen,
-			"<PXBLEController: %s, linked=%d, long=0x%02x, id=%u, bonds=%u>",
-			kStateNames[[self state]], sCurrentConn != NULL, _lastLongMask,
-			sAdvParam.id, bonds);
+	return snprintk(buf, maxLen, "<PXBLEController: %s, linked=%d, id=%u, bonds=%u>",
+			kStateNames[[self state]], sCurrentConn != NULL, sAdvParam.id, bonds);
 }
 
 @end
