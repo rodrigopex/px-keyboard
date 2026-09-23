@@ -27,6 +27,7 @@ flowchart LR
   BT["Bluetooth stack callbacks"] --> BLE
   BLE -->|pub| CL(("chan_ble_link"))
   CL -->|obs| LEDC["PXLEDController"]
+  BLE -->|"-blink:periodMs:"| LEDC
   LEDC --> LED["led0 / pwm_led0"]
 ```
 
@@ -64,8 +65,8 @@ reports a fixed development value of 100%.
 
 - nRF52833 DK (`nrf52833dk/nrf52833`), the default and the board verified
   on hardware
-- or nRF54L05 on the nRF54L15 DK (`nrf54l15dk/nrf54l05/cpuapp`), which
-  builds but has not yet been run on hardware
+- or nRF54L05 on the nRF54L15 DK (`nrf54l15dk/nrf54l05/cpuapp`), paired
+  on hardware with the passkey read off the LED
 - Zephyr SDK 1.0.1 (the justfile default; override with `just sdk=...`)
 - `west`, `just`, `tio`
 
@@ -127,9 +128,10 @@ Use `just rebuild` after touching `prj.conf`, `app.overlay`,
    `channel -> observer` line per registration.
 2. `Bluetooth initialized`, `Identity 1: <address>`, `Advertising started`,
    and the LED begins to breathe.
-3. Pair from the host: the device counts out a passkey on led1 (3–10 blinks)
-   and prints `Pairing passkey for <address>: 0000NN`; type the six digits,
-   leading zeros included.
+3. Pair from the host: the status LED stops breathing, goes dark for 2 s,
+   then counts out a passkey (3–10 blinks) and the console prints
+   `Pairing passkey for <address>: 0000NN`; type the six digits, leading
+   zeros included.
 4. Pressing sw0–sw3 types `p`, `x`, `k`, `b`; the debug observer prints
    semantic events such as `input: down P` and `input: up P`. The changed
    console stream still needs verification on hardware.
@@ -152,6 +154,13 @@ Button 4.
 
 Breathes while advertising (PWM); blinks while advertising on a GPIO-only
 indicator; solid when connected; off when idle.
+
+The same LED counts out the pairing passkey and confirms a bond erase with a
+fast 8-blink burst. Each burst stops the status animation and holds the LED
+dark for 2 s before the first blink, so the count cannot blur into a breath.
+That is `pwm_led0`, which drives the pin of `led0` on the nRF52833 DK and of `led1`
+on the nRF54L15 DK. The bursts used to go to a separate `led1`, which the
+nRF54L15 DK cannot do, because its PWM already drives that pin.
 
 ## Reading the code
 

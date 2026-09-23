@@ -10,15 +10,15 @@
  *        long-press gestures.
  *
  * Sections, in order: advertising data, connection callbacks, pairing
- * (passkey and the led1 blink bursts), bt_ready and identity resolution,
+ * (passkey and the blink bursts), bt_ready and identity resolution,
  * then the PXBLEController class itself -- state machine, advertising,
  * and the four gesture methods.
  */
 #import "PXBLEController.h"
 #import "PXBatterySource.h"
 #import "PXStaticBatterySource.h"
-#import "GPIOOutput.h"
 #import "PXKeyboard.h"
+#import "PXLEDController.h"
 
 #include <string.h>
 #include <zephyr/bluetooth/bluetooth.h>
@@ -27,7 +27,6 @@
 #include <zephyr/bluetooth/hci.h>
 #include <zephyr/bluetooth/services/bas.h>
 #include <zephyr/bluetooth/uuid.h>
-#include <zephyr/drivers/gpio.h>
 #include <zephyr/random/random.h>
 #include <zephyr/settings/settings.h>
 #include <zephyr/sys/printk.h>
@@ -232,7 +231,7 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 
 /* ---- Pairing ---- */
 
-/* ---- Passkey display: blink the count on led1 ---- */
+/* ---- Passkey display: blink the count (see PXLEDController -blink:periodMs:) ---- */
 
 /**
  * @brief Blink count range, which is also the passkey range.
@@ -269,7 +268,7 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 #define PX_PASSKEY_BLINK_MS 250
 
 /**
- * @brief Bond-erase confirmation: a burst on the same led1.
+ * @brief Bond-erase confirmation: a burst on the same LED as the passkey.
  *
  * Eight blinks, and deliberately three times faster than the passkey's 250.
  * Both bursts share one LED, so the period is what tells them apart -- a
@@ -278,66 +277,12 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 #define PX_ERASE_BLINKS   8
 #define PX_ERASE_BLINK_MS 80
 
-static const struct gpio_dt_spec kLed1Spec = GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios);
-
-/*
- * File scope rather than captured: a hoisted block takes no captures, and
- * the static bar does not count a file-scope variable as one. Same channel
- * PXLEDController's own timer block uses.
- *
- * Named for the burst rather than the passkey now that two callers arm it:
- * `.passkey_display` counts out the passkey, and `.bond_deleted` confirms an
- * erase.
- */
-static GPIOOutput *sBurstLed;
-static volatile int sBurstTogglesLeft;
-
-/*
- * Blinking cannot happen in the callback that wants it. `.passkey_display`
- * runs on the BT RX thread during SMP, and sleeping there for up to five
- * seconds would stall the pairing it is part of -- on the same 2048-byte
- * stack that already overflowed once. So the callback only arms this, and
- * the timer does the work.
- */
-K_TIMER_DEFINE(sBurstTimer, OZFN(^(struct k_timer *timer) {
-		 ARG_UNUSED(timer);
-
-		 if (sBurstTogglesLeft <= 0) {
-			 k_timer_stop(&sBurstTimer);
-			 [sBurstLed setActive:NO];
-			 return;
-		 }
-
-		 [sBurstLed toggle];
-		 sBurstTogglesLeft = sBurstTogglesLeft - 1;
-	       }),
-	       NULL);
-
-/**
- * @brief Arm the burst: @p blinks on/off pairs at @p periodMs each half.
- *
- * Restarts rather than queues, so the newest burst wins. That is the right
- * rule for the two callers: an erase during pairing has just invalidated the
- * passkey being counted out, so replacing it mid-count is the honest signal.
- */
-static void px_blink_burst(unsigned int blinks, int periodMs)
-{
-	if (sBurstLed == nil) {
-		return;
-	}
-
-	k_timer_stop(&sBurstTimer);
-	[sBurstLed setActive:NO];
-	sBurstTogglesLeft = (int)(blinks * 2U);
-	k_timer_start(&sBurstTimer, K_MSEC(periodMs), K_MSEC(periodMs));
-}
-
 /**
  * @brief The pairing passkey, generated per pairing.
  *
  * Drawn fresh for every pairing from the hardware RNG
  * (CONFIG_ENTROPY_NRF5_RNG), in PX_PASSKEY_MIN..PX_PASSKEY_MAX, and shown
- * by blinking led1 that many times. Zephyr's note on CONFIG_BT_APP_PASSKEY --
+ * by blinking that many times. Zephyr's note on CONFIG_BT_APP_PASSKEY --
  * "it is the responsibility of the application to use random and unique keys"
  * -- is why this replaced a fixed 555555; see PX_PASSKEY_MAX for how much of
  * that responsibility a range of eleven actually discharges.
@@ -389,10 +334,14 @@ static struct bt_conn_auth_cb auth_cb = {
 	  char addr[BT_ADDR_LE_STR_LEN];
 
 	  bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-	  printk("Pairing passkey for %s: %06u (%u blink(s) on led1)\n", addr, passkey, passkey);
+	  printk("Pairing passkey for %s: %06u (%u blink(s))\n", addr, passkey, passkey);
 
-	  /* Arm and return: the timer blinks, this thread does not. */
-	  px_blink_burst(passkey, PX_PASSKEY_BLINK_MS);
+	  /*
+	   * Arm and return: the controller's timer blinks, this thread does
+	   * not. This runs on the BT RX thread during SMP, and sleeping here for
+	   * up to five seconds would stall the pairing it is part of.
+	   */
+	  [[PXLEDController sharedInstance] blink:passkey periodMs:PX_PASSKEY_BLINK_MS];
 	}),
 
 	.cancel = OZFN(^(struct bt_conn *conn) {
@@ -438,7 +387,7 @@ static struct bt_conn_auth_info_cb auth_info_cb = {
 	  bt_addr_le_to_str(peer, addr, sizeof(addr));
 	  printk("Bond deleted: %s (id %u)\n", addr, identity);
 
-	  px_blink_burst(PX_ERASE_BLINKS, PX_ERASE_BLINK_MS);
+	  [[PXLEDController sharedInstance] blink:PX_ERASE_BLINKS periodMs:PX_ERASE_BLINK_MS];
 	}),
 };
 
@@ -577,10 +526,6 @@ static PXStaticBatterySource *sDefaultBatterySource;
 
 		_advertising = NO;
 		_batterySource = batterySource;
-
-		if (kLed1Spec.port) {
-			sBurstLed = [[GPIOOutput alloc] initWithDTSpec:&kLed1Spec flags:0];
-		}
 
 		OZLog("PXBLEController: initialized");
 	}

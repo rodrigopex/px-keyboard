@@ -13,6 +13,16 @@
  * is a genuine runtime question -- so the pulsing state asks
  * -conformsToProtocol:@protocol(PXDimmable) and breathes or blinks
  * accordingly.
+ *
+ * It also owns the counted bursts -- the passkey and the bond-erase
+ * confirmation -- and blinks them on the indicator itself: the status
+ * animation pauses, the LED stays dark for PX_BURST_LEAD_MS, the burst
+ * runs, and the current status is re-applied when it ends. One LED carries everything, on every board.
+ *
+ * Bursts used to go to led1 on its own GPIO. That breaks on the nRF54L15
+ * DK, whose pwm-led0 alias drives P1.10 -- led1's pin -- because its PWM
+ * cannot reach led0 at all: the PWM owned the pin and the passkey never
+ * showed. Sharing the indicator works on any board with no per-board case.
  */
 #import "PXLEDController.h"
 #import "PXDimmable.h"
@@ -33,6 +43,15 @@ static const struct pwm_dt_spec kPwmLed0Spec = PWM_DT_SPEC_GET(DT_ALIAS(pwm_led0
 /** @brief Breath tick, and the level added per tick, for a dimmable one. */
 #define PX_BREATH_MS   40
 #define PX_BREATH_STEP 16
+
+/**
+ * @brief Dark lead-in before a burst's first blink.
+ *
+ * Without it the count starts straight out of the breath, and the last
+ * fading breath reads as the first blink. Two seconds of off separates
+ * "status" from "count" unambiguously.
+ */
+#define PX_BURST_LEAD_MS 2000
 
 /** @brief Full brightness, matching PWMOutput's level range. */
 #define PX_BREATH_MAX 255
@@ -78,6 +97,25 @@ K_TIMER_DEFINE(sIndicatorTimer, OZFN(^(struct k_timer *timer) {
  * listener is the publisher's *stack*, not just its latency. An indicator
  * has no deadline, so the work queue hop costs nothing that matters.
  */
+/*
+ * Same user-data channel for the burst. Its own timer rather than a mode of
+ * the indicator's, so a burst's period never disturbs the breath's.
+ */
+K_TIMER_DEFINE(sBurstTimer, OZFN(^(struct k_timer *timer) {
+		 PXLEDController *controller =
+			 (__bridge PXLEDController *)k_timer_user_data_get(timer);
+		 [controller burstStep];
+	       }),
+	       NULL);
+
+/*
+ * -setLEDStatus: runs on the system workqueue, -blink:periodMs: on the BT
+ * RX thread, and both timers expire in ISR context. All four touch the same
+ * LED and the same two timers, so each takes this for the whole of its
+ * work.
+ */
+static struct k_spinlock sLEDLock;
+
 ZBUS_ASYNC_LISTENER_DEFINE(alis_led_status,
 			   OZFN(^(const struct zbus_channel *chan, const void *message) {
 			     const struct msg_ble_link *link = message;
@@ -108,6 +146,7 @@ static PXLEDController *sSharedLEDController;
 	int _status;
 	uint8_t _breathLevel;
 	int8_t _breathDelta;
+	int _burstTogglesLeft;
 }
 
 + (void)initialize
@@ -139,8 +178,10 @@ static PXLEDController *sSharedLEDController;
 		 * only knowable at runtime.
 		 */
 		_dimmable = [_indicator conformsToProtocol:@protocol(PXDimmable)];
+		_burstTogglesLeft = 0;
 
 		k_timer_user_data_set(&sIndicatorTimer, (__bridge void *)self);
+		k_timer_user_data_set(&sBurstTimer, (__bridge void *)self);
 
 		_status = PX_LED_STATUS_OFF;
 		OZLog("PXLEDController: initialized (%@)", _indicator);
@@ -150,21 +191,61 @@ static PXLEDController *sSharedLEDController;
 
 - (void)setLEDStatus:(enum px_led_status)status
 {
-	if (_status == status) {
+	BOOL applied = NO;
+	k_spinlock_key_t key = k_spin_lock(&sLEDLock);
+
+	if (_status != status) {
+		_status = status;
+
+		/* During a burst, the new status waits for it to end. */
+		if (_burstTogglesLeft <= 0) {
+			[self applyStatus];
+			applied = YES;
+		}
+	}
+
+	k_spin_unlock(&sLEDLock, key);
+
+	/*
+	 * Logged here, after the unlock and on the workqueue, never inside
+	 * -applyStatus. OZLog is a synchronous UART print, about 2 ms for
+	 * one line at 115200 baud. When the burst timer re-applied the status,
+	 * that print ran in ISR context with sLEDLock's interrupts masked,
+	 * and it held off the BLE controller's radio ISR long enough to trip
+	 * lll_peripheral.c's EVENT_OVERHEAD_START_US assertion (2104 us).
+	 */
+	if (!applied || _indicator == nil) {
 		return;
 	}
-	_status = status;
 
+	switch (status) {
+	case PX_LED_STATUS_OFF:
+		OZLog("PXLEDController: off");
+		break;
+	case PX_LED_STATUS_BLINK:
+		OZLog("PXLEDController: %s", _dimmable ? "breathing" : "blinking");
+		break;
+	case PX_LED_STATUS_ON:
+		OZLog("PXLEDController: solid");
+		break;
+	}
+}
+
+/**
+ * Drive the indicator from _status. Called with sLEDLock held, and from
+ * the burst timer's ISR, so it must stay short: no logging here.
+ */
+- (void)applyStatus
+{
 	k_timer_stop(&sIndicatorTimer);
 
 	if (_indicator == nil) {
 		return;
 	}
 
-	switch (status) {
+	switch (_status) {
 	case PX_LED_STATUS_OFF:
 		[_indicator setActive:NO];
-		OZLog("PXLEDController: off");
 		break;
 
 	case PX_LED_STATUS_BLINK:
@@ -174,18 +255,49 @@ static PXLEDController *sSharedLEDController;
 
 		if (_dimmable) {
 			k_timer_start(&sIndicatorTimer, K_MSEC(PX_BREATH_MS), K_MSEC(PX_BREATH_MS));
-			OZLog("PXLEDController: breathing");
 		} else {
 			k_timer_start(&sIndicatorTimer, K_MSEC(PX_BLINK_MS), K_MSEC(PX_BLINK_MS));
-			OZLog("PXLEDController: blinking");
 		}
 		break;
 
 	case PX_LED_STATUS_ON:
 		[_indicator setActive:YES];
-		OZLog("PXLEDController: solid");
 		break;
 	}
+}
+
+- (void)blink:(unsigned int)count periodMs:(int)periodMs
+{
+	if (_indicator == nil) {
+		return;
+	}
+
+	k_spinlock_key_t key = k_spin_lock(&sLEDLock);
+
+	/* Restarts rather than queues, so the newest burst wins. */
+	k_timer_stop(&sBurstTimer);
+	k_timer_stop(&sIndicatorTimer);
+	[_indicator setActive:NO];
+	_burstTogglesLeft = (int)(count * 2U);
+	k_timer_start(&sBurstTimer, K_MSEC(PX_BURST_LEAD_MS), K_MSEC(periodMs));
+
+	k_spin_unlock(&sLEDLock, key);
+}
+
+- (void)burstStep
+{
+	k_spinlock_key_t key = k_spin_lock(&sLEDLock);
+
+	if (_burstTogglesLeft <= 0) {
+		k_timer_stop(&sBurstTimer);
+		[_indicator setActive:NO];
+		[self applyStatus];
+	} else {
+		[_indicator toggle];
+		_burstTogglesLeft = _burstTogglesLeft - 1;
+	}
+
+	k_spin_unlock(&sLEDLock, key);
 }
 
 - (void)indicate
