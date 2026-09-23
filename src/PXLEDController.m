@@ -55,6 +55,21 @@ static const struct pwm_dt_spec kPwmLed0Spec = PWM_DT_SPEC_GET(DT_ALIAS(pwm_led0
 #define PX_BREATH_MS   40
 #define PX_BREATH_STEP 16
 
+/*
+ * A breath tick must outlast one PWM period, because the tick runs with
+ * sLEDLock held -- interrupts masked -- and often in ISR context. At 0% (and
+ * 100% on the nRF52) pwm_nrfx only requests a stop, which the peripheral
+ * honours at the end of the current period; the next partial duty then
+ * spins in pwm_nrfx_set_cycles until it has. Only the breath sets a partial
+ * duty, and it always does so one tick after reaching 0 or full, so a tick
+ * longer than the period finds the peripheral already stopped and never
+ * spins. A shorter one would busy-wait for up to a period with interrupts
+ * masked -- 20 ms on both DKs, against the BLE controller's 2104 us.
+ */
+BUILD_ASSERT((uint64_t)PX_BREATH_MS * 1000000ULL > DT_PWMS_PERIOD(DT_ALIAS(pwm_led0)),
+	     "PX_BREATH_MS must exceed the pwm-led0 period, or the breath "
+	     "busy-waits in pwm_nrfx with sLEDLock held");
+
 /**
  * @brief Dark gap on both sides of a burst.
  *
