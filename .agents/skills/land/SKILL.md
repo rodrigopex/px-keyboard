@@ -1,10 +1,10 @@
 ---
 name: land
 description: >-
-  Land px-keyboard changes only after the user explicitly requests landing
-  through Delta Land Changes, /land, or equivalent language. Do not use this
-  skill for review, setup, preparation-only work, or passing checks without a
-  landing request.
+  Land an already prepared and human-approved px-keyboard candidate after an
+  explicit request through Delta Land Changes, /land, or equivalent language.
+  Do not use this skill to prepare commits, perform review, or pass checks
+  without a landing request.
 metadata:
   delta-action: land
 ---
@@ -15,104 +15,124 @@ Use this skill only for an explicit landing request. A visible `/land`
 invocation, the Delta Land Changes button, or a direct request to land or merge
 the current changes is already permission to run this workflow; do not ask the
 user again whether they want to land. Stop only for genuine blockers, ambiguous
-scope, unrelated work that cannot be preserved safely, failed verification, push
-denial, or merge/rebase conflicts.
+scope, stale preparation or approval, an invalid candidate, a changed
+destination, push denial, or unsafe local synchronization.
 
-This repository lands directly: make a local topic branch, rebase it onto the
-latest `origin/main`, merge it into local `main`, push `main` to Delta's `local`
-remote first so the user's project checkout is updated, then push `main` to
-`origin`. Do not open a pull request or wait for CI; this repository currently
+This repository lands a candidate already produced by `/prepare-review` and
+approved through review. Landing must not change that candidate: validate the
+exact approved tip, fast-forward Delta's `main`, push it directly to `origin`,
+then fetch and fast-forward the user's local `main` if it has not changed since
+preflight. Do not open a pull request or wait for CI; this repository currently
 has no CI workflow configured, and the project owner specified that PRs are not
 the landing path.
 
-## Sources for project-specific commands
+## Candidate contract
 
-- `justfile:7` defines the board as `nrf52833dk/nrf52833`.
-- `justfile:18-26` defines the normal workspace-derived `ZEPHYR_BASE` and
-  Zephyr SDK location.
-- `justfile:44-46` defines the normal build command:
-  `west build -b {{ board }} -d {{ build_dir }} . -- {{ flags }}`.
-- `CMakeLists.txt:9-19` resolves the Objective-Z module from `west topdir` and
-  finds Zephyr from `$ZEPHYR_BASE`; this supports the Delta-worktree fallback
-  when the `justfile` workspace-relative `ZEPHYR_BASE` points at the wrong
-  parent directory.
+- `/prepare-review` creates or validates the semantic change commits, rebases
+  them onto `origin/main`, creates the final isolated version commit, verifies
+  the build, and reports the exact candidate tip without pushing.
+- A human review approves that exact tip.
+- This skill validates and publishes the approved commit graph without
+  creating, amending, rebasing, squashing, or otherwise rewriting it.
 
 ## Workflow
 
-1. Establish the requested landing scope.
-   - Inspect `git --no-optional-locks status --short` and the diff.
-   - Include only the changes the user asked to land.
-   - If unrelated edits are present and cannot be cleanly separated, stop and
-     ask the user which changes belong in this landing.
-   - Preserve ignored local files and generated build artifacts; do not add
-     them.
+1. Identify the immutable candidate and its approval.
+   - Require a clean index and worktree. Landing never commits outstanding
+     changes.
+   - Record the current `HEAD` as the candidate tip and inspect its complete
+     commit range and diff.
+   - Require a recorded successful `/prepare-review` result for this exact SHA,
+     including the verification command and result.
+   - Require at least one explicit human approval of this exact SHA. A landing
+     request, approval of an earlier diff, or a changes-requested verdict does
+     not count.
+   - Record the candidate SHA, prepared base SHA, resulting version, verification
+     result, and approver for the final report.
 
-2. Prepare a topic branch and commit.
-   - If already on a topic branch for the requested change, use it.
-   - If on `main`, create a local topic branch with a clear name, for example
-     `land/<short-description>`.
-   - Stage only the requested files.
-   - Create a non-interactive commit with an appropriate concise message.
-   - If the requested changes are already committed, identify the commit range
-     instead of making a duplicate commit.
+2. Confirm that the destination has not changed.
+   - Run `git fetch origin main`. If it fails, stop.
+   - Require the fetched `origin/main` SHA to equal the base recorded by
+     `/prepare-review`.
+   - Require the candidate to be a strict descendant of `origin/main`, suitable
+     for a fast-forward.
+   - If the destination advanced, stop. Do not rebase during landing; run
+     `/prepare-review`, verification, and review again.
 
-3. Update from the destination.
-   - Run `git fetch origin main`.
-   - Rebase the topic branch onto `origin/main`.
-   - Conflict preference: pause and ask the user on any rebase or merge
-     conflict. Do not resolve conflicts automatically.
-   - If rebase succeeds, continue with the rebased commit(s). If it fails for a
-     reason other than conflicts, stop and report the blocker.
+3. Validate the prepared commit graph without changing it.
+   - Require every change commit in `origin/main..HEAD` to follow Conventional
+     Commits.
+   - Require `HEAD` to be the sole release commit, named
+     `chore(release): bump version to X.Y.Z`, and require it to change only
+     `VERSION`.
+   - Recalculate the required version increment from the base `VERSION` and the
+     change commits using the rules in `AGENTS.md`. Require the release commit's
+     contents and message to match exactly.
+   - Require `VERSION_TWEAK = 0` and an empty `EXTRAVERSION`.
+   - If any validation fails, stop and return to `/prepare-review`; do not fix
+     the candidate in the landing workflow.
 
-4. Verify the exact rebased change locally.
-   - First try the normal command:
-     `just build`
-   - If that fails because the Delta worktree path makes the `justfile`
-     workspace-relative `ZEPHYR_BASE` invalid, retry with the workspace-aware
-     fallback:
-     `ZEPHYR_BASE="$(west topdir)/deps/zephyr" ZEPHYR_SDK_INSTALL_DIR="$HOME/.local/zephyr-sdk-1.0.1" west build -b nrf52833dk/nrf52833 -d build . --`
-   - Treat a failed build as a landing blocker. Do not push.
+4. Preflight the local repository.
+   - Resolve `git remote get-url local` and require it to identify the user's
+     local px-keyboard Git repository. Inspect that repository without changing
+     or deleting user work.
+   - Require its checked-out branch to be `main`, its index and worktree to be
+     clean, and its `main` to equal the destination `origin/main` SHA established
+     by the post-approval fetch. Do not rely on a possibly stale remote-tracking
+     ref. Stop if any condition fails.
+   - Record the local `main` SHA and clean status. Recheck both before updating
+     the local repository after the upstream push.
+   - Confirm the local repository has an `origin` remote for the intended
+     upstream.
 
-5. Merge to local `main`.
-   - Ensure the topic branch contains the verified commit(s).
+5. Fast-forward Delta's `main` to the approved candidate.
+   - Retain the approved candidate SHA before switching branches.
    - Check out `main`.
-   - Fast-forward `main` to `origin/main` if possible.
-   - Merge the rebased topic branch into `main`. Prefer a fast-forward merge
-     when available; if Git requires a non-fast-forward merge after a successful
-     rebase, stop and explain why instead of inventing a merge strategy.
-   - If conflicts occur, pause and ask the user.
+   - Fast-forward `main` to `origin/main`, then fast-forward it to the approved
+     candidate SHA using `git merge --ff-only`.
+   - Require `main` to equal the approved SHA. If either fast-forward fails,
+     stop; do not create a merge commit.
 
-6. Update the user's local project checkout first.
-   - Inspect `git remote -v` and confirm there is a `local` remote. In Delta,
-     this is the backlink to the user's primary project checkout.
-   - Push `main` to `local` before pushing to `origin`:
-     `git push local main:main`
-   - If this push is rejected, stop and report the blocker. Do not push to
-     `origin` while the user's local project checkout would remain behind.
-   - Verify that `local/main` now points at or contains the landed commit, for
-     example with `git ls-remote local refs/heads/main` or an equivalent
-     inspected ref.
+6. Push Delta's `main` directly to `origin`.
+   - Immediately before pushing, inspect the remote `origin/main` again. If it
+     differs from the prepared base, stop and return to preparation and review.
+   - Push normally from the Delta worktree:
+     `git push origin main:main`
+   - Never force-push. If the push is rejected, stop and report the blocker.
+   - Fetch or inspect `origin/main` after the push and require it to equal
+     Delta's `main`.
 
-7. Push and verify the upstream destination.
-   - Push `main` to `origin` only after the `local` remote has been updated and
-     verified.
-   - Fetch or inspect `origin/main` after the push and verify that the landed
-     commit is reachable from `origin/main`.
-   - Successful landing means the requested change is present on both
-     `local/main` and `origin/main`, not merely committed locally, verified
-     locally, or pushed to a topic branch.
+7. Fast-forward the user's local `main` and verify synchronization.
+   - Resolve the user's checkout through `git remote get-url local`.
+   - Before changing it, require its branch, `main` SHA, index, and worktree to
+     match the state recorded during preflight. If another person or agent
+     changed it, stop without overwriting their work and report that the
+     upstream landing succeeded but local synchronization is incomplete.
+   - From the user's local checkout, fetch `origin/main`, then fast-forward:
+     `git fetch origin main`
+     `git merge --ff-only origin/main`
+   - Do not reset, force-update, or discard local work if the fast-forward
+     fails.
+   - Fetch `origin/main` in the Delta worktree after the update so comparisons
+     do not use stale remote-tracking refs.
+   - Require Delta's `main`, the user's local `main`, and the remote
+     `origin/main` to resolve to exactly the same commit. Also require the
+     user's local checkout to remain clean and on `main`.
+   - Successful landing means all three repositories are synchronized, not
+     merely that the candidate is committed, built, or present on a topic
+     branch.
 
 8. Report the outcome.
    - In the conversation, summarize the landed commit short SHA, destination,
-     and verification command.
+     resulting version, approver, and verification command.
    - If running in a subthread and `report_subthread_status` is available, also
      report the result to the parent:
      - Use `status: "success"` only after verifying the requested commit is on
-       both `local/main` and `origin/main`.
-     - Use `status: "failure"` for failed builds, conflicts, push denial,
-       ambiguous scope, or any blocker that prevents landing.
-     - Keep the title short, such as `Landed on main`, `Blocked by build`,
-       `Merge conflicts`, or `Push blocked`.
+       both the user's local `main` and `origin/main`.
+     - Use `status: "failure"` for stale preparation or approval, destination
+       changes, push denial, or any blocker that prevents landing.
+     - Keep the title short, such as `Landed on main`, `Approval stale`,
+       `Destination changed`, or `Push blocked`.
      - Keep the description to one short line with the short SHA when known and
        the verification result. Omit CI links because this repository has no CI.
 
@@ -120,7 +140,11 @@ the landing path.
 
 - Never force-push.
 - Never rewrite published `main`.
-- Do not bypass failed local verification.
+- Never create, amend, rebase, squash, or cherry-pick candidate commits.
+- Do not land without recorded successful preparation of the exact candidate.
+- Do not land without approval of the exact final candidate.
+- Do not combine the version edit with any other change.
+- Do not overwrite a local checkout that changed after preflight.
 - Do not publish secrets or read credential values.
 - Do not treat skill installation, branch publication, or a passing build as a
   successful landing.

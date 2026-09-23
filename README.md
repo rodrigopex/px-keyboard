@@ -1,15 +1,16 @@
 # PX Keyboard
 
-A Bluetooth LE HID keyboard firmware for the nRF52833 DK, written in
-[Objective-Z](https://github.com/rodrigopex/objective-z) — the heap-free,
-ahead-of-time Objective-C subset for Zephyr RTOS.
+A Bluetooth LE HID keyboard firmware for the nRF54L05 on the nRF54L15 DK,
+written in [Objective-Z](https://github.com/rodrigopex/objective-z) — the
+heap-free, ahead-of-time Objective-C subset for Zephyr RTOS. The nRF52833 DK
+remains supported.
 
 Four buttons type `pxkb`; the same four, held for five seconds, become a
 gesture layer (advertising toggle, link drop, battery report, forget-bond).
 Pairing shows its passkey as LED blinks instead of a screen. About 1,700
 lines of Objective-Z, no heap, no Objective-C runtime.
 
-v0.2.0.
+The current version is defined in [`VERSION`](VERSION).
 
 ## Architecture
 
@@ -63,10 +64,9 @@ reports a fixed development value of 100%.
 
 ## Requirements
 
-- nRF52833 DK (`nrf52833dk/nrf52833`), the default and the board verified
-  on hardware
-- or nRF54L05 on the nRF54L15 DK (`nrf54l15dk/nrf54l05/cpuapp`), paired
-  on hardware with the passkey read off the LED
+- nRF54L05 on the nRF54L15 DK (`nrf54l15dk/nrf54l05/cpuapp`), the official
+  target, paired on hardware with the passkey read off the LED
+- or nRF52833 DK (`nrf52833dk/nrf52833`), also verified on hardware
 - Zephyr SDK 1.0.1 (the justfile default; override with `just sdk=...`)
 - `west`, `just`, `tio`
 
@@ -89,23 +89,22 @@ resolves `ZEPHYR_BASE` to `../deps/zephyr` from the parent directory.
 ## Build, flash, run
 
 ```
-just         # list the recipes
-just run     # build + flash + monitor
+just                                    # list the recipes
+just tty=/dev/tty.usbmodemXXX run-54    # official target: build + flash + monitor
 ```
 
 Two defaults are machine-specific and overridable per invocation:
 
 ```
-just sdk=~/.local/zephyr-sdk-1.0.0 rebuild
+just sdk=~/.local/zephyr-sdk-1.0.0 rebuild-54
 just tty=/dev/tty.usbmodemXXX monitor
 ```
 
-The nrf54l05 has recipes of its own, and its DK enumerates a different
-serial port, so `tty` needs overriding for it too:
+The unsuffixed recipes remain available for the supported nRF52833 DK:
 
 ```
-just rebuild-54
-just tty=/dev/tty.usbmodemXXX run-54
+just rebuild
+just run
 ```
 
 `kernel thread stacks` works in every build, because the kernel shell turns
@@ -114,18 +113,19 @@ those come from the `zview` snippet rather than from `prj.conf`. Any recipe
 that builds accepts the snippet:
 
 ```
-just snippet=zview rebuild
 just snippet=zview rebuild-54
+just snippet=zview rebuild
 ```
 
-Use `just rebuild` after touching `prj.conf`, `app.overlay`,
-`CMakeLists.txt`, or the transpiler.
+Use `just rebuild-54` after touching `prj.conf`, `app.overlay`,
+`CMakeLists.txt`, or the transpiler. Use `just rebuild` for the corresponding
+nRF52833 build.
 
 ## What you should see
 
-1. Boot banner `=== PX Keyboard v0.2.0 ===`, then each singleton logs
-   `initialized` as it is first touched, then the wiring report: one
-   `channel -> observer` line per registration.
+1. Boot banner `=== PX Keyboard v<version from VERSION> ===`, then each
+   singleton logs `initialized` as it is first touched, then the wiring report:
+   one `channel -> observer` line per registration.
 2. `Bluetooth initialized`, `Identity 1: <address>`, `Advertising started`,
    and the LED begins to breathe.
 3. Pair from the host: the status LED stops breathing, goes dark for 2 s,
