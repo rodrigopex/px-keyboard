@@ -21,7 +21,8 @@
 enum px_ble_state {
 	PX_BLE_STATE_IDLE,
 	PX_BLE_STATE_ADVERTISING,
-	PX_BLE_STATE_CONNECTED,
+	PX_BLE_STATE_CONNECTED, /* linked, not yet encrypted with a bond */
+	PX_BLE_STATE_SECURED,   /* encrypted: a fresh pairing or a bonded reconnect */
 };
 
 struct msg_ble_link {
