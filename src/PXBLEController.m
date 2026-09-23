@@ -42,6 +42,7 @@
 
 - (void)onBTReady;
 - (void)onConnected;
+- (void)onSecured;
 - (void)onDisconnected;
 - (void)onConnectionRecycled;
 - (void)handleLongPress:(enum px_key)key;
@@ -126,6 +127,17 @@ static struct bt_le_adv_param sAdvParam = {
 
 /* ---- Connection callbacks ---- */
 
+/**
+ * @brief Pairing or encryption failure: five fast blinks.
+ *
+ * The same 80 ms as the bond-erase burst (PX_ERASE_BLINK_MS), since both
+ * report an event rather than a number to read, and five rather than eight
+ * so the two stay distinguishable. The passkey can be five too, but it
+ * blinks three times slower.
+ */
+#define PX_SECURITY_FAIL_BLINKS   5
+#define PX_SECURITY_FAIL_BLINK_MS 80
+
 /*
  * Written as blocks in the initializer itself, via OZFN (objective-z
  * #300). These are registered once and called from nowhere else, so a
@@ -200,10 +212,29 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 
 	  if (!err) {
 		  printk("Security changed: %s level %u\n", addr, level);
+
+		  /*
+		   * Here rather than in `.pairing_complete`, which a bonded host
+		   * reconnecting never triggers: it encrypts with the stored key
+		   * and pairs nothing. Level 2 is what `.connected` asks for.
+		   */
+		  if (level >= BT_SECURITY_L2) {
+			  [[PXBLEController sharedInstance] onSecured];
+		  }
 		  return;
 	  }
 
 	  printk("Security failed: %s level %u err %d\n", addr, level, err);
+
+	  /*
+	   * Here rather than in `.pairing_failed`, for the same reason in
+	   * reverse: this also fires when a bonded reconnect cannot encrypt,
+	   * the PIN-or-Key-Missing case below, which is just as much a bond
+	   * that did not complete. The stack reports a failed pairing through
+	   * both callbacks, so arming it in both would restart the burst.
+	   */
+	  [[PXLEDController sharedInstance] blink:PX_SECURITY_FAIL_BLINKS
+				       periodMs:PX_SECURITY_FAIL_BLINK_MS];
 
 	  /*
 	   * The mirror of -forgetBond: the *host* dropped its bond, ours is
@@ -573,6 +604,12 @@ static PXStaticBatterySource *sDefaultBatterySource;
 	[self publishState:PX_BLE_STATE_CONNECTED];
 }
 
+- (void)onSecured
+{
+	OZLog("PXBLEController: secured");
+	[self publishState:PX_BLE_STATE_SECURED];
+}
+
 - (void)onDisconnected
 {
 	OZLog("PXBLEController: disconnected");
@@ -764,7 +801,8 @@ static PXStaticBatterySource *sDefaultBatterySource;
 
 - (int)getDescription:(char *)buf maxLength:(size_t)maxLen
 {
-	static const char *const kStateNames[] = {"idle", "advertising", "connected"};
+	static const char *const kStateNames[] = {"idle", "advertising", "connected",
+						     "secured"};
 	unsigned int bonds = 0;
 
 	bt_foreach_bond(sAdvParam.id, OZFN(^(const struct bt_bond_info *info, void *user_data) {

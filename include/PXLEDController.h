@@ -5,7 +5,7 @@
 
 /**
  * @file PXLEDController.h
- * @brief Status indicator, driven from chan_ble_link.
+ * @brief Status indicator, driven from chan_ble_link and chan_input.
  *
  * Deliberately knows nothing about Bluetooth: it takes an abstract status,
  * and the observer in the implementation does the BLE-state mapping.
@@ -17,6 +17,7 @@ enum px_led_status {
 	PX_LED_STATUS_OFF,
 	PX_LED_STATUS_BLINK,
 	PX_LED_STATUS_ON,
+	PX_LED_STATUS_CONFIRM, /* on for a few seconds, then settles on OFF */
 };
 
 @interface PXLEDController: OZObject <OZSingletonProtocol>
@@ -38,9 +39,17 @@ enum px_led_status {
  *
  * On the status indicator, whose animation pauses for the burst and
  * resumes after it. The LED is held off for two seconds before the first
- * blink. Restarts rather than queues.
+ * blink and after the last. Restarts rather than queues.
  */
 - (void)blink:(unsigned int)count periodMs:(int)periodMs;
+
+/**
+ * @brief Record button @p index (an enum px_key) as held or released.
+ *
+ * While any button is held the LED is on, overriding the status; the
+ * last release re-applies it. Ignored for display during a burst.
+ */
+- (void)setButton:(unsigned int)index held:(BOOL)held;
 
 /** Burst timer tick. Not meant for anything else. */
 - (void)burstStep;

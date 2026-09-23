@@ -129,9 +129,11 @@ Use `just rebuild` after touching `prj.conf`, `app.overlay`,
 2. `Bluetooth initialized`, `Identity 1: <address>`, `Advertising started`,
    and the LED begins to breathe.
 3. Pair from the host: the status LED stops breathing, goes dark for 2 s,
-   then counts out a passkey (3–10 blinks) and the console prints
-   `Pairing passkey for <address>: 0000NN`; type the six digits, leading
-   zeros included.
+   counts out a passkey (3–10 blinks), and goes dark for 2 s again before
+   breathing resumes; the console prints
+   `Pairing passkey for <address>: 0000NN`. Type the six digits, leading
+   zeros included; once the link is secured the LED stays on for 3 s, then
+   goes off.
 4. Pressing sw0–sw3 types `p`, `x`, `k`, `b`; the debug observer prints
    semantic events such as `input: down P` and `input: up P`. The changed
    console stream still needs verification on hardware.
@@ -152,15 +154,23 @@ Button 4.
 
 ### LED
 
-Breathes while advertising (PWM); blinks while advertising on a GPIO-only
-indicator; solid when connected; off when idle.
+One LED carries everything: `pwm_led0`, which drives the pin of `led0` on
+the nRF52833 DK and of `led1` on the nRF54L15 DK. What it shows, highest
+priority first:
 
-The same LED counts out the pairing passkey and confirms a bond erase with a
-fast 8-blink burst. Each burst stops the status animation and holds the LED
-dark for 2 s before the first blink, so the count cannot blur into a breath.
-That is `pwm_led0`, which drives the pin of `led0` on the nRF52833 DK and of `led1`
-on the nRF54L15 DK. The bursts used to go to a separate `led1`, which the
-nRF54L15 DK cannot do, because its PWM already drives that pin.
+| Situation | LED |
+|-----------|-----|
+| Passkey | dark 2 s, one blink per passkey unit (250 ms), dark 2 s |
+| Pairing or encryption failed | dark 2 s, 5 fast blinks (80 ms), dark 2 s |
+| Bond erased (sw3 hold) | dark 2 s, 8 fast blinks (80 ms), dark 2 s |
+| Any button held | on until every button is released |
+| Advertising, or connected and waiting on pairing | breathing (blinking on a GPIO-only indicator) |
+| Link secured (new bond or bonded reconnect) | on for 3 s, then off |
+| Idle | off |
+
+A button pressed during a burst does not show until the burst ends, so it
+cannot corrupt a count. The bursts used to go to a separate `led1`, which
+the nRF54L15 DK cannot do, because its PWM already drives that pin.
 
 ## Reading the code
 
