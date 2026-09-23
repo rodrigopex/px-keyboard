@@ -33,4 +33,16 @@ enum px_led_status {
 - (void)setLEDStatus:(enum px_led_status)status;
 - (void)indicate;
 
+/**
+ * @brief Blink @p count on/off pairs, @p periodMs each half.
+ *
+ * On the status indicator, whose animation pauses for the burst and
+ * resumes after it. The LED is held off for two seconds before the first
+ * blink. Restarts rather than queues.
+ */
+- (void)blink:(unsigned int)count periodMs:(int)periodMs;
+
+/** Burst timer tick. Not meant for anything else. */
+- (void)burstStep;
+
 @end
