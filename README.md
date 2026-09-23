@@ -62,7 +62,10 @@ reports a fixed development value of 100%.
 
 ## Requirements
 
-- nRF52833 DK (`nrf52833dk/nrf52833`)
+- nRF52833 DK (`nrf52833dk/nrf52833`), the default and the board verified
+  on hardware
+- or nRF54L05 on the nRF54L15 DK (`nrf54l15dk/nrf54l05/cpuapp`), which
+  builds but has not yet been run on hardware
 - Zephyr SDK 1.0.1 (the justfile default; override with `just sdk=...`)
 - `west`, `just`, `tio`
 
@@ -94,6 +97,24 @@ Two defaults are machine-specific and overridable per invocation:
 ```
 just sdk=~/.local/zephyr-sdk-1.0.0 rebuild
 just tty=/dev/tty.usbmodemXXX monitor
+```
+
+The nrf54l05 has recipes of its own, and its DK enumerates a different
+serial port, so `tty` needs overriding for it too:
+
+```
+just rebuild-54
+just tty=/dev/tty.usbmodemXXX run-54
+```
+
+`kernel thread stacks` works in every build, because the kernel shell turns
+on the options it needs. ZView also needs runtime, heap and slab stats, and
+those come from the `zview` snippet rather than from `prj.conf`. Any recipe
+that builds accepts the snippet:
+
+```
+just snippet=zview rebuild
+just snippet=zview rebuild-54
 ```
 
 Use `just rebuild` after touching `prj.conf`, `app.overlay`,
